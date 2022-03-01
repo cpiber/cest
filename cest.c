@@ -22,7 +22,6 @@
   } while(0);
 #define UNREACHABLE do { assert(0 && "unreachable"); exit(99); } while(0);
 
-
 #define REG_COMPILE(preg, regex, cflags) do                                   \
   {                                                                           \
     int err;                                                                  \
@@ -33,7 +32,9 @@
       exit(1);                                                                \
     }                                                                         \
   } while(0);
+
 #define IDENT_RE "[A-Za-z_][A-Za-z0-9_]*"
+// TODO: This does not consider typedef`s without body (i.e. forward defs)
 #define STRUCT_RE "(typedef\\s+)?struct\\s*(\\s(" IDENT_RE "))?\\s*" \
   "\\{([^}]*)\\}\\s*(" IDENT_RE ")?\\s*;"
 
