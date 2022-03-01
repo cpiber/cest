@@ -86,6 +86,7 @@ String_View preprocess_file(const char *filename) {
     fprintf(stderr, "child did not exit normally\n");
     exit(1);
   }
+  ptr[total] = 0;
   return (String_View) {
     .count = total,
     .data = ptr,
@@ -123,8 +124,9 @@ typedef struct {
   String_View tdef;
 } StructDef;
 typedef struct {
-  StructDef *structs;
+  const StructDef *structs;
   size_t n;
+  const char *orig;
 } StructArr;
 
 StructArr collect_structs(char *filename) {
@@ -146,10 +148,10 @@ StructArr collect_structs(char *filename) {
   for (i = 0; (err = next_struct(&reg, p, &structs[i].defn, &structs[i].strt, &structs[i].tdef)) >= 0; ++i, p += err);
   assert(i == n);
   regfree(&reg);
-  free((void *)file.data);
   return (StructArr) {
     .structs = structs,
     .n = n,
+    .orig = file.data,
   };
 }
 
@@ -169,4 +171,6 @@ int main(int argc, char *argv[]) {
     if (strts.structs[i].strt.count) printf("struct " SV_Fmt "\n", SV_Arg(strts.structs[i].strt));
     if (strts.structs[i].tdef.count) printf(SV_Fmt "\n", SV_Arg(strts.structs[i].tdef));
   }
+  free((void *)strts.orig);
+  free((void *)strts.structs);
 }
