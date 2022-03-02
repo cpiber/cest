@@ -23,5 +23,7 @@ INHERIT_STRUCT(struct test2, test4) {
   char c3;
 };
 INHERIT_STRUCT(struct test4) {};
+INHERIT_STRUCT(struct test4) {} tt;
+typedef INHERIT_STRUCT(struct test4) {};
 
 CEST_MACROS_HERE

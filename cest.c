@@ -88,7 +88,7 @@ String_View preprocess_file(const char *filename) {
       size = size == 0 ? INITIAL_FILE_CAP : size * 2; // new size double
       ptr = realloc(ptr, size);
       if (ptr == NULL) {
-        perror("realloc");
+        perror("realloc preprocess_file");
         exit(1);
       }
     }
@@ -107,6 +107,39 @@ String_View preprocess_file(const char *filename) {
     fprintf(stderr, "child did not exit normally\n");
     exit(1);
   }
+  ptr[total] = 0;
+  return (String_View) {
+    .count = total,
+    .data = ptr,
+  };
+}
+
+String_View load_file(const char *filename) {
+  FILE *f = fopen(filename, "r");
+  if (f == NULL) {
+    perror("fopen load_file");
+    exit(1);
+  }
+  size_t size = 0;
+  char *ptr = NULL;
+  size_t total = 0;
+  ssize_t nread = 0;
+  do {
+    total += nread;
+    if (total >= size) {
+      size = size == 0 ? INITIAL_FILE_CAP : size * 2; // new size double
+      ptr = realloc(ptr, size);
+      if (ptr == NULL) {
+        perror("realloc load_file");
+        exit(1);
+      }
+    }
+  } while ((nread = fread(ptr + total, 1, size - total, f)) > 0);
+  if (nread < 0) {
+    perror("read");
+    exit(1);
+  }
+  POSIX_WORK(fclose, f);
   ptr[total] = 0;
   return (String_View) {
     .count = total,
@@ -190,6 +223,13 @@ void collect_inherits(StructArr *structs) {
       .data = p + matches[7].rm_so,
     };
 
+    // if exactly one of these is true, it's an error
+    // i.e. typedef but no name, or no typedef but name
+    if ((matches[1].rm_eo - matches[1].rm_so > 0) ^ (new.tdef.count > 0)) {
+      fprintf(stderr, "Error: syntax error (typedef requries name) for child of `" SV_Fmt "`\n", SV_Arg(who));
+      p += matches[0].rm_eo;
+      continue;
+    }
     if (!new.strt.count && !new.tdef.count) {
       fprintf(stderr, "Error: neither struct name nor typedef given for child of `" SV_Fmt "`\n", SV_Arg(who));
       p += matches[0].rm_eo;
@@ -239,6 +279,10 @@ void usage(FILE *stream, const char *program) {
 
 
 int main(int argc, char *argv[]) {
+  if (argc > 1 && strcmp(argv[1], "-h") == 0) {
+    usage(stdout, argv[0]);
+    exit(0);
+  }
   if (argc < 3) {
     fprintf(stderr, "too few arguments provided!\n");
     usage(stderr, argv[0]);
@@ -259,4 +303,6 @@ int main(int argc, char *argv[]) {
   // will require making tdef an array
   free((void *)strts.orig);
   free((void *)strts.items);
+  String_View file = load_file(argv[1]);
+  (void)file;
 }
