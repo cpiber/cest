@@ -43,6 +43,7 @@
 #define INHERIT_RE "(typedef\\s+)?INHERIT_STRUCT"                             \
   "\\(\\s*((struct\\s+)?" IDENT_RE ")(\\s*,\\s*(" IDENT_RE "))?\\s*\\)\\s*"   \
   "\\{([^}]*)\\}\\s*(" IDENT_RE ")?\\s*;"
+#define STRUCT_NAME_RE "(" IDENT_RE ")\\s*;"
 
 
 
@@ -251,21 +252,61 @@ void collect_inherits(StructArr *structs) {
   }
 }
 
-#define WRITE(ptr, size)                                           \
-    /* write one entire buffer or fail */                          \
-    if (fwrite(ptr, size, 1, outfile) != 1 && ferror(outfile)) {   \
-      perror("fwrite");                                            \
-      exit(1);                                                     \
-    }
+#define WRITE(ptr, size) do                                          \
+    {                                                                \
+      /* write one entire buffer or fail */                          \
+      if (fwrite(ptr, size, 1, outfile) != 1 && ferror(outfile)) {   \
+        perror("fwrite");                                            \
+        exit(1);                                                     \
+      }                                                              \
+    } while (0);
 void dump_def(StructArr data, StructDef def, FILE *outfile) {
   if (def.hasParent) dump_def(data, data.items[def.parent], outfile);
   WRITE(def.defn.data, def.defn.count);
+}
+
+void dump_asserts(StructArr data, StructDef def, StructDef curparent, StructDef parent, regex_t *reg, FILE *outfile) {
+  // dump asserts for all fields in parent chain, but with actual parent name
+  if (parent.hasParent) dump_asserts(data, def, curparent, data.items[parent.parent], reg, outfile);
+  regmatch_t matches[2];
+  char *p = (char *)parent.defn.data;
+  while ((regexec(reg, p, sizeof(matches)/sizeof(matches[0]), matches, 0)) == 0) {
+    if (p + matches[0].rm_so >= parent.defn.data + parent.defn.count) break;
+    static char assrt1[] = "_Static_assert(offsetof(";
+    static char assrt2[] = ") == offsetof(";
+    static char assrt3[] = "), \"Offsets don't match\");\n";
+    static char strut[] = "struct ";
+    WRITE(assrt1, sizeof(assrt1) - 1);
+    if (def.strt.count) {
+      WRITE(strut, sizeof(strut) - 1);
+      WRITE(def.strt.data, def.strt.count);
+    } else {
+      assert(def.tdef.count);
+      WRITE(def.tdef.data, def.tdef.count);
+    }
+    WRITE(", ", 2);
+    WRITE(p + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
+    WRITE(assrt2, sizeof(assrt2) - 1);
+    if (curparent.strt.count) {
+      WRITE(strut, sizeof(strut) - 1);
+      WRITE(curparent.strt.data, curparent.strt.count);
+    } else {
+      assert(curparent.tdef.count);
+      WRITE(curparent.tdef.data, curparent.tdef.count);
+    }
+    WRITE(", ", 2);
+    WRITE(p + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
+    WRITE(assrt3, sizeof(assrt3) - 1);
+    p += matches[0].rm_eo;
+  }
 }
 
 void replace_inherits(StructArr data, String_View file, FILE *outfile) {
   // TODO: put casting macros in place of `CEST_MACROS_HERE`
   regex_t reg;
   REG_COMPILE(&reg, INHERIT_RE, REG_EXTENDED);
+  regex_t namereg;
+  REG_COMPILE(&namereg, STRUCT_NAME_RE, REG_EXTENDED);
   regmatch_t matches[8];
   char *p = (char *)file.data;
   while ((regexec(&reg, p, sizeof(matches)/sizeof(matches[0]), matches, 0)) == 0) {
@@ -303,7 +344,10 @@ void replace_inherits(StructArr data, String_View file, FILE *outfile) {
         dump_def(data, data.items[i], outfile);
         WRITE("}", 1);
         WRITE(new.tdef.data, new.tdef.count);
-        WRITE(";", 1);
+        WRITE(";\n", 2);
+        StructDef cur = data.items[i];
+        assert(cur.hasParent);
+        dump_asserts(data, cur, data.items[cur.parent], data.items[cur.parent], &namereg, outfile);
         found = true;
         break;
       }
@@ -313,6 +357,8 @@ void replace_inherits(StructArr data, String_View file, FILE *outfile) {
     UNREACHABLE
   }
   WRITE(p, (file.data + file.count) - p);
+  regfree(&reg);
+  regfree(&namereg);
 }
 #undef WRITE
 
