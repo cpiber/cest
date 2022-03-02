@@ -59,10 +59,6 @@ typedef struct {
   const char *orig;
 } StructArr;
 
-typedef struct {
-  MAKE_ARRAY(char)
-} FileArr;
-
 #define INITIAL_FILE_CAP 1000
 String_View preprocess_file(const char *filename) {
   int fd[2];
@@ -255,16 +251,16 @@ void collect_inherits(StructArr *structs) {
   }
 }
 
-FileArr replace_inherits(String_View file) {
-  FileArr result = (FileArr) {
-    .items = (char *)file.data,
-    .items_count = file.count + 1,
-    .items_cap = file.count + 1,
-  };
+void replace_inherits(String_View file, FILE *outfile) {
+#define WRITE(ptr, size)                                                              \
+    if (fwrite(ptr, size, 1, outfile) != 1) { /* write one entire buffer or fail */   \
+      perror("fwrite");                                                               \
+      exit(1);                                                                        \
+    }
   regex_t reg;
   REG_COMPILE(&reg, INHERIT_RE, REG_EXTENDED);
   regmatch_t matches[8];
-  char *p = result.items;
+  char *p = (char *)file.data;
   while ((regexec(&reg, p, sizeof(matches)/sizeof(matches[0]), matches, 0)) == 0) {
     StructDef new = {0};
     String_View who = (String_View) {
@@ -284,33 +280,22 @@ FileArr replace_inherits(String_View file) {
       .count = matches[7].rm_eo - matches[7].rm_so,
       .data = p + matches[7].rm_so,
     };
-    size_t size = matches[0].rm_eo - matches[0].rm_so;
+    WRITE(p, matches[0].rm_so);
 
     // remove erroneous definitions
     if (((matches[1].rm_eo - matches[1].rm_so > 0) ^ (new.tdef.count > 0)) ||
         (!new.strt.count && !new.tdef.count)) {
       static char err[] = "/* replaced error */";
-      ssize_t diff = sizeof(err) - 1 - size;
-      if (diff > 0) {
-        // reallocations can shift own pointer
-        size_t offset_in_file = p - result.items;
-        ARRAY_EXTEND(result, diff);
-        p = result.items + offset_in_file;
-      }
-      // move everything behind such that exactly error message is here
-      // and adjust length of file
-      memmove(p + matches[0].rm_so + sizeof(err) - 1, p + matches[0].rm_eo,
-          (size_t) ((result.items + result.items_count) - (p + matches[0].rm_eo)));
-      memcpy(p + matches[0].rm_so, err, sizeof(err) - 1);
-      p += matches[0].rm_so + sizeof(err) - 1;
-      result.items_count += diff;
+      WRITE(err, sizeof(err) - 1);
+      p += matches[0].rm_eo;
       continue;
     }
     
     // TODO: dump struct definition, static asserts here
     p += matches[0].rm_eo;
   }
-  return result;
+  WRITE(p, (file.data + file.count) - p);
+#undef WRITE
 }
 
 void print_struct_def(StructArr arr, StructDef def, int level) {
@@ -358,8 +343,13 @@ int main(int argc, char *argv[]) {
   // will require making tdef an array
   free((void *)strts.orig);
   free((void *)strts.items);
-  FileArr f = replace_inherits(load_file(argv[1]));
-  printf("-------------------------\n");
-  printf("New file contents:\n");
-  printf(SV_Fmt, (int) f.items_count, f.items);
+  String_View file = load_file(argv[1]);
+  FILE *outfile = stdout;
+  if (strcmp(argv[2], "-") != 0) outfile = fopen(argv[2], "w");
+  if (outfile == NULL) {
+    fprintf(stderr, "Could not open file `%s` for writing: %s\n", argv[2], strerror(errno));
+    exit(1);
+  }
+  replace_inherits(file, outfile); 
+  if (strcmp(argv[2], "-") != 0) POSIX_WORK(fclose, outfile);
 }
