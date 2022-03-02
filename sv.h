@@ -71,6 +71,7 @@ SVDEF bool sv_eq_ignorecase(String_View a, String_View b);
 SVDEF bool sv_starts_with(String_View sv, String_View prefix);
 SVDEF bool sv_ends_with(String_View sv, String_View suffix);
 SVDEF uint64_t sv_to_u64(String_View sv);
+SVDEF String_View sv_left(String_View sv, size_t n);
 
 #endif  // SV_H_
 
@@ -302,6 +303,10 @@ SVDEF String_View sv_take_left_while(String_View sv, bool (*predicate)(char x))
         i += 1;
     }
     return sv_from_parts(sv.data, i);
+}
+
+SVDEF String_View sv_left(String_View sv, size_t n) {
+  return sv_from_parts(sv.data + n, sv.count - n);
 }
 
 #endif // SV_IMPLEMENTATION

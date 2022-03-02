@@ -1,0 +1,27 @@
+#pragma once
+
+struct t1 {
+  int w;
+};
+typedef INHERIT_STRUCT(struct t1, t2) {
+  int w2;
+} asdf;
+typedef INHERIT_STRUCT(struct t1) {
+  char c;
+} t3;
+
+typedef struct _test {
+  char c;
+} test;
+INHERIT_STRUCT(struct _test, test2) {
+  char c2;
+};
+INHERIT_STRUCT(test, test3) {
+  char c2;
+};
+INHERIT_STRUCT(struct test2, test4) {
+  char c3;
+};
+INHERIT_STRUCT(struct test4) {};
+
+CEST_MACROS_HERE

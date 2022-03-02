@@ -1,18 +1,5 @@
 #include <stdio.h>
-
-struct t1 {
-  int w;
-};
-typedef struct t2 {
-  int w;
-  int w2;
-} asdf;
-typedef struct {
-  int w;
-} t3;
-
-#define CAST_AS_T1S(X) _Generic((X), struct t1*: (X), struct t2*: (struct t1*) (X))
-#define CAST_AS_T1(X) _Generic((X), struct t1: (X), struct t2: *(struct t1*) &(X))
+#include <test.h>
 
 int main() {
   struct t1 x = {0};
