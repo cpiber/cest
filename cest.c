@@ -128,7 +128,9 @@ typedef struct {
   String_View defn;
   String_View strt;
   String_View tdef;
-  MAKE_ARRAY(size_t) 
+  bool hasParent;
+  size_t parent;
+  MAKE_ARRAY(size_t) // inherits
 } StructDef;
 typedef struct {
   MAKE_ARRAY(StructDef)
@@ -193,18 +195,18 @@ void collect_inherits(StructArr *structs) {
       continue;
     }
     
-    bool found = false;
     for (size_t i = 0; i < structs->items_count; ++i) {
       if ((sv_starts_with(who, SV("struct ")) &&
             sv_eq(sv_left(who, sizeof("struct ") - 1), structs->items[i].strt)) ||
           sv_eq(who, structs->items[i].tdef)) {
+        new.parent = i;
+        new.hasParent = true;
         ARRAY_PUSH(*structs, new);
         ARRAY_PUSH(structs->items[i], structs->items_count - 1);
-        found = true;
         break;
       }
     }
-    if (!found) {
+    if (!new.hasParent) {
       fprintf(stderr, "Error: no parent `" SV_Fmt "` known in definition of ", SV_Arg(who));
       if (new.strt.count) fprintf(stderr, "`struct " SV_Fmt "`", SV_Arg(new.strt));
       if (new.strt.count && new.tdef.count) fprintf(stderr, " / ");
@@ -220,6 +222,7 @@ void print_struct_def(StructArr arr, StructDef def, int level) {
   if (def.strt.count) printf("struct " SV_Fmt, SV_Arg(def.strt));
   if (def.strt.count && def.tdef.count) printf(" / ");
   if (def.tdef.count) printf(SV_Fmt, SV_Arg(def.tdef));
+  if (def.hasParent) printf(" (parent: %zu)", def.parent);
   printf("\n");
   if (def.items_count) {
     printf("%*.sChildren:\n", level * 2, "");
