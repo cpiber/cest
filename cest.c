@@ -40,7 +40,7 @@
 // TODO: This does not consider typedef`s without body (i.e. forward defs)
 #define STRUCT_RE "(typedef\\s+)?struct\\s*(\\s(" IDENT_RE "))?\\s*" \
   "\\{([^}]*)\\}\\s*(" IDENT_RE ")?\\s*;"
-#define INHERIT_RE "(typedef\\s+)?\\s*INHERIT_STRUCT"            \
+#define INHERIT_RE "(typedef\\s+)?INHERIT_STRUCT"                             \
   "\\(\\s*((struct\\s+)?" IDENT_RE ")(\\s*,\\s*(" IDENT_RE "))?\\s*\\)\\s*"   \
   "\\{([^}]*)\\}\\s*(" IDENT_RE ")?\\s*;"
 
@@ -59,6 +59,9 @@ typedef struct {
   const char *orig;
 } StructArr;
 
+typedef struct {
+  MAKE_ARRAY(char)
+} FileArr;
 
 #define INITIAL_FILE_CAP 1000
 String_View preprocess_file(const char *filename) {
@@ -120,29 +123,23 @@ String_View load_file(const char *filename) {
     perror("fopen load_file");
     exit(1);
   }
-  size_t size = 0;
-  char *ptr = NULL;
-  size_t total = 0;
-  ssize_t nread = 0;
-  do {
-    total += nread;
-    if (total >= size) {
-      size = size == 0 ? INITIAL_FILE_CAP : size * 2; // new size double
-      ptr = realloc(ptr, size);
-      if (ptr == NULL) {
-        perror("realloc load_file");
-        exit(1);
-      }
-    }
-  } while ((nread = fread(ptr + total, 1, size - total, f)) > 0);
-  if (nread < 0) {
-    perror("read");
+  POSIX_WORK(fseek, f, 0, SEEK_END);
+  long size = ftell(f);
+  if (size < 0) {
+    perror("ftell");
+    exit(1);
+  }
+  POSIX_WORK(fseek, f, 0, SEEK_SET);
+
+  char *ptr = malloc(size + 1);
+  if (fread(ptr, size, 1, f) < 1) { // read one entire buffer or fail
+    perror("fread");
     exit(1);
   }
   POSIX_WORK(fclose, f);
-  ptr[total] = 0;
+  ptr[size] = 0;
   return (String_View) {
-    .count = total,
+    .count = size,
     .data = ptr,
   };
 }
@@ -258,6 +255,64 @@ void collect_inherits(StructArr *structs) {
   }
 }
 
+FileArr replace_inherits(String_View file) {
+  FileArr result = (FileArr) {
+    .items = (char *)file.data,
+    .items_count = file.count + 1,
+    .items_cap = file.count + 1,
+  };
+  regex_t reg;
+  REG_COMPILE(&reg, INHERIT_RE, REG_EXTENDED);
+  regmatch_t matches[8];
+  char *p = result.items;
+  while ((regexec(&reg, p, sizeof(matches)/sizeof(matches[0]), matches, 0)) == 0) {
+    StructDef new = {0};
+    String_View who = (String_View) {
+      .count = matches[2].rm_eo - matches[2].rm_so,
+      .data = p + matches[2].rm_so,
+    };
+    (void)who;
+    new.defn = (String_View) {
+      .count = matches[6].rm_eo - matches[6].rm_so,
+      .data = p + matches[6].rm_so,
+    };
+    new.strt = (String_View) {
+      .count = matches[5].rm_eo - matches[5].rm_so,
+      .data = p + matches[5].rm_so,
+    };
+    new.tdef = (String_View) {
+      .count = matches[7].rm_eo - matches[7].rm_so,
+      .data = p + matches[7].rm_so,
+    };
+    size_t size = matches[0].rm_eo - matches[0].rm_so;
+
+    // remove erroneous definitions
+    if (((matches[1].rm_eo - matches[1].rm_so > 0) ^ (new.tdef.count > 0)) ||
+        (!new.strt.count && !new.tdef.count)) {
+      static char err[] = "/* replaced error */";
+      ssize_t diff = sizeof(err) - 1 - size;
+      if (diff > 0) {
+        // reallocations can shift own pointer
+        size_t offset_in_file = p - result.items;
+        ARRAY_EXTEND(result, diff);
+        p = result.items + offset_in_file;
+      }
+      // move everything behind such that exactly error message is here
+      // and adjust length of file
+      memmove(p + matches[0].rm_so + sizeof(err) - 1, p + matches[0].rm_eo,
+          (size_t) ((result.items + result.items_count) - (p + matches[0].rm_eo)));
+      memcpy(p + matches[0].rm_so, err, sizeof(err) - 1);
+      p += matches[0].rm_so + sizeof(err) - 1;
+      result.items_count += diff;
+      continue;
+    }
+    
+    // TODO: dump struct definition, static asserts here
+    p += matches[0].rm_eo;
+  }
+  return result;
+}
+
 void print_struct_def(StructArr arr, StructDef def, int level) {
   printf("%*.s", level * 2, "");
   if (def.strt.count) printf("struct " SV_Fmt, SV_Arg(def.strt));
@@ -303,6 +358,8 @@ int main(int argc, char *argv[]) {
   // will require making tdef an array
   free((void *)strts.orig);
   free((void *)strts.items);
-  String_View file = load_file(argv[1]);
-  (void)file;
+  FileArr f = replace_inherits(load_file(argv[1]));
+  printf("-------------------------\n");
+  printf("New file contents:\n");
+  printf(SV_Fmt, (int) f.items_count, f.items);
 }
