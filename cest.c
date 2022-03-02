@@ -251,27 +251,25 @@ void collect_inherits(StructArr *structs) {
   }
 }
 
-void replace_inherits(String_View file, FILE *outfile) {
-#define WRITE(ptr, size)                                                              \
-    if (fwrite(ptr, size, 1, outfile) != 1) { /* write one entire buffer or fail */   \
-      perror("fwrite");                                                               \
-      exit(1);                                                                        \
+#define WRITE(ptr, size)                                           \
+    /* write one entire buffer or fail */                          \
+    if (fwrite(ptr, size, 1, outfile) != 1 && ferror(outfile)) {   \
+      perror("fwrite");                                            \
+      exit(1);                                                     \
     }
+void dump_def(StructArr data, StructDef def, FILE *outfile) {
+  if (def.hasParent) dump_def(data, data.items[def.parent], outfile);
+  WRITE(def.defn.data, def.defn.count);
+}
+
+void replace_inherits(StructArr data, String_View file, FILE *outfile) {
+  // TODO: put casting macros in place of `CEST_MACROS_HERE`
   regex_t reg;
   REG_COMPILE(&reg, INHERIT_RE, REG_EXTENDED);
   regmatch_t matches[8];
   char *p = (char *)file.data;
   while ((regexec(&reg, p, sizeof(matches)/sizeof(matches[0]), matches, 0)) == 0) {
     StructDef new = {0};
-    String_View who = (String_View) {
-      .count = matches[2].rm_eo - matches[2].rm_so,
-      .data = p + matches[2].rm_so,
-    };
-    (void)who;
-    new.defn = (String_View) {
-      .count = matches[6].rm_eo - matches[6].rm_so,
-      .data = p + matches[6].rm_so,
-    };
     new.strt = (String_View) {
       .count = matches[5].rm_eo - matches[5].rm_so,
       .data = p + matches[5].rm_so,
@@ -291,12 +289,32 @@ void replace_inherits(String_View file, FILE *outfile) {
       continue;
     }
     
-    // TODO: dump struct definition, static asserts here
+    // TODO: dump static asserts
+    static char tpdef[] = "typedef ";
+    static char strut[] = "struct ";
+    bool found = false;
+    for (size_t i = 0; i < data.items_count; ++i) {
+      if ((new.strt.count && sv_eq(new.strt, data.items[i].strt)) ||
+          (new.tdef.count && sv_eq(new.tdef, data.items[i].tdef))) {
+        if (new.tdef.count) WRITE(tpdef, sizeof(tpdef) - 1);
+        WRITE(strut, sizeof(strut) - 1);
+        WRITE(new.strt.data, new.strt.count);
+        WRITE("{", 1);
+        dump_def(data, data.items[i], outfile);
+        WRITE("}", 1);
+        WRITE(new.tdef.data, new.tdef.count);
+        WRITE(";", 1);
+        found = true;
+        break;
+      }
+    }
     p += matches[0].rm_eo;
+    if (found) continue;
+    UNREACHABLE
   }
   WRITE(p, (file.data + file.count) - p);
-#undef WRITE
 }
+#undef WRITE
 
 void print_struct_def(StructArr arr, StructDef def, int level) {
   printf("%*.s", level * 2, "");
@@ -341,8 +359,6 @@ int main(int argc, char *argv[]) {
   }
   // TODO: collect anonymous typedefs
   // will require making tdef an array
-  free((void *)strts.orig);
-  free((void *)strts.items);
   String_View file = load_file(argv[1]);
   FILE *outfile = stdout;
   if (strcmp(argv[2], "-") != 0) outfile = fopen(argv[2], "w");
@@ -350,6 +366,8 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Could not open file `%s` for writing: %s\n", argv[2], strerror(errno));
     exit(1);
   }
-  replace_inherits(file, outfile); 
+  replace_inherits(strts, file, outfile); 
   if (strcmp(argv[2], "-") != 0) POSIX_WORK(fclose, outfile);
+  free((void *)strts.orig);
+  free((void *)strts.items);
 }
