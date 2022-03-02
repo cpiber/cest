@@ -9,7 +9,7 @@ run: cest
 	./cest test.h.in -
 
 valgrind: cest
-	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes -s ./cest test.c
+	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes -s ./cest test.c -
 
 clean:
 	rm -rf cest
