@@ -45,6 +45,21 @@
   "\\{([^}]*)\\}\\s*(" IDENT_RE ")?\\s*;"
 
 
+
+typedef struct {
+  String_View defn;
+  String_View strt;
+  String_View tdef;
+  bool hasParent;
+  size_t parent;
+  MAKE_ARRAY(size_t) // inherits
+} StructDef;
+typedef struct {
+  MAKE_ARRAY(StructDef)
+  const char *orig;
+} StructArr;
+
+
 #define INITIAL_FILE_CAP 1000
 String_View preprocess_file(const char *filename) {
   int fd[2];
@@ -122,20 +137,6 @@ ssize_t next_struct(regex_t *reg, char *file, String_View *def, String_View *str
   }
   return matches[0].rm_eo;
 }
-
-
-typedef struct {
-  String_View defn;
-  String_View strt;
-  String_View tdef;
-  bool hasParent;
-  size_t parent;
-  MAKE_ARRAY(size_t) // inherits
-} StructDef;
-typedef struct {
-  MAKE_ARRAY(StructDef)
-  const char *orig;
-} StructArr;
 
 StructArr collect_structs(const char *filename) {
   regex_t reg;
@@ -233,12 +234,12 @@ void print_struct_def(StructArr arr, StructDef def, int level) {
 }
 
 void usage(FILE *stream, const char *program) {
-  fprintf(stream, "%s <file>\n", program);
+  fprintf(stream, "%s <in file> <out file>\n", program);
 }
 
 
 int main(int argc, char *argv[]) {
-  if (argc < 2) {
+  if (argc < 3) {
     fprintf(stderr, "too few arguments provided!\n");
     usage(stderr, argv[0]);
     exit(1);
@@ -254,6 +255,8 @@ int main(int argc, char *argv[]) {
   for (size_t i = 0; i < strts.items_count; i++) {
     print_struct_def(strts, strts.items[i], 0);
   }
+  // TODO: collect anonymous typedefs
+  // will require making tdef an array
   free((void *)strts.orig);
   free((void *)strts.items);
 }
