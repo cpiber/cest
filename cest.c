@@ -10,6 +10,8 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
+// #define DEBUG
+
 #define SV_IMPLEMENTATION
 #include "./sv.h"
 #include "./array.h"
@@ -40,8 +42,9 @@
 // TODO: This does not consider typedef`s without body (i.e. forward defs)
 #define STRUCT_RE "(typedef\\s+)?struct\\s*(\\s(" IDENT_RE "))?\\s*" \
   "\\{([^}]*)\\}\\s*(" IDENT_RE ")?\\s*;"
-#define INHERIT_RE "(typedef\\s+)?INHERIT_STRUCT"                             \
-  "\\(\\s*((struct\\s+)?" IDENT_RE ")(\\s*,\\s*(" IDENT_RE "))?\\s*\\)\\s*"   \
+// TODO: implement multiple inheritance
+#define INHERIT_RE "(typedef\\s+)?struct\\s*(\\s(" IDENT_RE "))?\\s*"   \
+  "\\(\\s*(struct\\s+)?(" IDENT_RE ")\\s*\\)\\s*"                       \
   "\\{([^}]*)\\}\\s*(" IDENT_RE ")?\\s*;"
 #define STRUCT_NAME_RE "(" IDENT_RE ")\\s*;"
 #define INSERT_STR "CEST_MACROS_HERE"
@@ -202,16 +205,17 @@ void collect_inherits(StructArr *structs) {
   while ((regexec(&reg, p, sizeof(matches)/sizeof(matches[0]), matches, 0)) == 0) {
     StructDef new = {0};
     String_View who = (String_View) {
-      .count = matches[2].rm_eo - matches[2].rm_so,
-      .data = p + matches[2].rm_so,
+      .count = matches[5].rm_eo - matches[5].rm_so,
+      .data = p + matches[5].rm_so,
     };
+    bool is_struct = (matches[4].rm_eo - matches[4].rm_so) > 0;
     new.defn = (String_View) {
       .count = matches[6].rm_eo - matches[6].rm_so,
       .data = p + matches[6].rm_so,
     };
     new.strt = (String_View) {
-      .count = matches[5].rm_eo - matches[5].rm_so,
-      .data = p + matches[5].rm_so,
+      .count = matches[3].rm_eo - matches[3].rm_so,
+      .data = p + matches[3].rm_so,
     };
     new.tdef = (String_View) {
       .count = matches[7].rm_eo - matches[7].rm_so,
@@ -232,8 +236,7 @@ void collect_inherits(StructArr *structs) {
     }
     
     for (size_t i = 0; i < structs->items_count; ++i) {
-      if ((sv_starts_with(who, SV("struct ")) &&
-            sv_eq(sv_left(who, sizeof("struct ") - 1), structs->items[i].strt)) ||
+      if ((is_struct && sv_eq(who, structs->items[i].strt)) ||
           sv_eq(who, structs->items[i].tdef)) {
         new.parent = i;
         new.hasParent = true;
@@ -397,8 +400,8 @@ void replace_inherits(StructArr data, String_View file, FILE *outfile) {
   while ((regexec(&reg, p, sizeof(matches)/sizeof(matches[0]), matches, 0)) == 0) {
     StructDef new = {0};
     new.strt = (String_View) {
-      .count = matches[5].rm_eo - matches[5].rm_so,
-      .data = p + matches[5].rm_so,
+      .count = matches[3].rm_eo - matches[3].rm_so,
+      .data = p + matches[3].rm_so,
     };
     new.tdef = (String_View) {
       .count = matches[7].rm_eo - matches[7].rm_so,

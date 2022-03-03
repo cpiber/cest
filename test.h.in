@@ -4,27 +4,27 @@
 struct t1 {
   int w;
 };
-typedef INHERIT_STRUCT(struct t1, t2) {
+typedef struct t2 ( struct t1 ) {
   int w2;
 } asdf;
-typedef INHERIT_STRUCT(struct t1) {
+typedef struct(struct t1){
   char c;
 } t3;
 
 typedef struct _test {
   char c;
 } test;
-INHERIT_STRUCT(struct _test, test2) {
+struct test2 (struct   _test) {
   char c2;
 };
-INHERIT_STRUCT(test, test3) {
+struct test3 (test) {
   char c2;
 };
-INHERIT_STRUCT(struct test2, test4) {
+struct test4 (struct test2) {
   char c3;
 };
-INHERIT_STRUCT(struct test4) {};
-INHERIT_STRUCT(struct test4) {} tt;
-typedef INHERIT_STRUCT(struct test4) {};
+struct (struct test4) {};
+struct (struct test4) {} tt;
+typedef struct (struct test4) {};
 
 CEST_MACROS_HERE
