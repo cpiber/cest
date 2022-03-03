@@ -32,6 +32,8 @@ Currently using any struct present in the current file and its includes is possi
 
 The special name `CEST_MACROS_HERE` is used to denote the place where the casting-macros should be placed.
 
+The macros allow type-safe casting of child-structs to their parent structs. They are of the form `CEST_AS_<typename>`, where `<typename>` can be `struct_<structname>` or the typedef'd name. `S` may be appended for the pointer version.
+
 
 ## Integrating into the build
 

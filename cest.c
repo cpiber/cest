@@ -310,6 +310,7 @@ void dump_asserts(StructArr data, StructDef def, StructDef curparent, StructDef 
   }
 }
 
+// TODO: children of children should be possible to cast as well
 void out_cast(StructArr data, StructDef def, String_View name, bool is_struct, FILE *outfile) {
   if (!def.items_count) return;
   static char defc[] = "#define CEST_AS_";
