@@ -23,8 +23,11 @@ struct test3 (test) {
 struct test4 (struct test2) {
   char c3;
 };
+/*
+ * Produce warnings:
 struct (struct test4) {};
 struct (struct test4) {} tt;
 typedef struct (struct test4) {};
+*/
 
 CEST_MACROS_HERE

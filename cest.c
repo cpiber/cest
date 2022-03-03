@@ -32,7 +32,7 @@
     int err;                                                                  \
     if ((err = regcomp(preg, regex, cflags))) {                               \
       static char errbuf[200];                                                \
-      assert(regerror(err, &reg, errbuf, sizeof(errbuf)) < sizeof(errbuf));   \
+      assert(regerror(err, preg, errbuf, sizeof(errbuf)) < sizeof(errbuf));   \
       fprintf(stderr, "Error compiling regex `%s`: %s\n", regex, errbuf);     \
       exit(1);                                                                \
     }                                                                         \
@@ -58,6 +58,8 @@ typedef struct {
   bool hasParent;
   size_t parent;
   MAKE_ARRAY(size_t) // inherits
+  char *loc_start;
+  char *loc_end;
 } StructDef;
 typedef struct {
   MAKE_ARRAY(StructDef)
@@ -197,11 +199,11 @@ StructArr collect_structs(const char *filename) {
   };
 }
 
-void collect_inherits(StructArr *structs) {
+void collect_inherits(StructArr *structs, String_View file) {
   regex_t reg;
   REG_COMPILE(&reg, INHERIT_RE, REG_EXTENDED);
   regmatch_t matches[8];
-  char *p = (char *)structs->orig;
+  char *p = (char *)file.data;
   while ((regexec(&reg, p, sizeof(matches)/sizeof(matches[0]), matches, 0)) == 0) {
     StructDef new = {0};
     String_View who = (String_View) {
@@ -221,18 +223,21 @@ void collect_inherits(StructArr *structs) {
       .count = matches[7].rm_eo - matches[7].rm_so,
       .data = p + matches[7].rm_so,
     };
+    new.loc_start = p + matches[0].rm_so;
+    new.loc_end = p + matches[0].rm_eo;
 
-    // if exactly one of these is true, it's an error
-    // i.e. typedef but no name, or no typedef but name
-    if ((matches[1].rm_eo - matches[1].rm_so > 0) ^ (new.tdef.count > 0)) {
-      fprintf(stderr, "Error: syntax error (typedef requries name) for child of `" SV_Fmt "`\n", SV_Arg(who));
-      p += matches[0].rm_eo;
-      continue;
+    // typdef given but no name -> skip it
+    if ((matches[1].rm_eo - matches[1].rm_so > 0) && (new.tdef.count == 0)) {
+      fprintf(stderr, "Warning: typedef but no name for child of `" SV_Fmt "`\n", SV_Arg(who));
+      new.loc_start = p + matches[1].rm_eo;
+    }
+    // no typedef but name -> clear 
+    if ((matches[1].rm_eo - matches[1].rm_so == 0) && (new.tdef.count > 0)) {
+      fprintf(stderr, "Warning: ignoring name without typedef for child of `" SV_Fmt "`\n", SV_Arg(who));
+      new.tdef.count = 0;
     }
     if (!new.strt.count && !new.tdef.count) {
-      fprintf(stderr, "Error: neither struct name nor typedef given for child of `" SV_Fmt "`\n", SV_Arg(who));
-      p += matches[0].rm_eo;
-      continue;
+      fprintf(stderr, "Warning: neither struct name nor typedef given for child of `" SV_Fmt "`\n", SV_Arg(who));
     }
     
     for (size_t i = 0; i < structs->items_count; ++i) {
@@ -241,7 +246,8 @@ void collect_inherits(StructArr *structs) {
         new.parent = i;
         new.hasParent = true;
         ARRAY_PUSH(*structs, new);
-        ARRAY_PUSH(structs->items[i], structs->items_count - 1);
+        if (new.strt.count || new.tdef.count) // TODO: is this good? parent-child broken...
+          ARRAY_PUSH(structs->items[i], structs->items_count - 1);
         break;
       }
     }
@@ -390,74 +396,44 @@ void output_casts(StructArr data, FILE *outfile) {
 }
 
 void replace_inherits(StructArr data, String_View file, FILE *outfile) {
-  regex_t reg;
-  REG_COMPILE(&reg, INHERIT_RE, REG_EXTENDED);
   regex_t namereg;
   REG_COMPILE(&namereg, STRUCT_NAME_RE, REG_EXTENDED);
-  regmatch_t matches[8];
-  char *p = (char *)file.data;
   char *ins = NULL;
-  while ((regexec(&reg, p, sizeof(matches)/sizeof(matches[0]), matches, 0)) == 0) {
-    StructDef new = {0};
-    new.strt = (String_View) {
-      .count = matches[3].rm_eo - matches[3].rm_so,
-      .data = p + matches[3].rm_so,
-    };
-    new.tdef = (String_View) {
-      .count = matches[7].rm_eo - matches[7].rm_so,
-      .data = p + matches[7].rm_so,
-    };
-    if ((ins = strstr(p, INSERT_STR)) != NULL && ins < p + matches[0].rm_so) {
-      WRITE(p, ins - p);
+  char *last = (char *)file.data;
+  // items are guaranteed to be in order
+  for (size_t i = 0; i < data.items_count; ++i) {
+    StructDef def = data.items[i];
+    if (!def.hasParent) continue;
+    if ((ins = strstr(last, INSERT_STR)) != NULL && ins < def.loc_start) {
+      WRITE(last, ins - last);
       output_casts(data, outfile);
-      WRITE(ins + sizeof(INSERT_STR) - 1, matches[0].rm_so - (ins - p) - (sizeof(INSERT_STR) - 1));
+      WRITE(ins + sizeof(INSERT_STR) - 1, def.loc_start - (ins + sizeof(INSERT_STR) - 1));
     } else {
-      WRITE(p, matches[0].rm_so);
-    }
-
-    // remove erroneous definitions
-    if (((matches[1].rm_eo - matches[1].rm_so > 0) ^ (new.tdef.count > 0)) ||
-        (!new.strt.count && !new.tdef.count)) {
-      static char err[] = "/* replaced error */";
-      WRITE(err, sizeof(err) - 1);
-      p += matches[0].rm_eo;
-      continue;
+      WRITE(last, def.loc_start - last);
     }
     
     static char tpdef[] = "typedef ";
     static char strut[] = "struct ";
-    bool found = false;
-    for (size_t i = 0; i < data.items_count; ++i) {
-      if ((new.strt.count && sv_eq(new.strt, data.items[i].strt)) ||
-          (new.tdef.count && sv_eq(new.tdef, data.items[i].tdef))) {
-        if (new.tdef.count) WRITE(tpdef, sizeof(tpdef) - 1);
-        WRITE(strut, sizeof(strut) - 1);
-        WRITE(new.strt.data, new.strt.count);
-        WRITE("{", 1);
-        dump_def(data, data.items[i], outfile);
-        WRITE("}", 1);
-        WRITE(new.tdef.data, new.tdef.count);
-        WRITE(";\n", 2);
-        StructDef cur = data.items[i];
-        assert(cur.hasParent);
-        dump_asserts(data, cur, data.items[cur.parent], data.items[cur.parent], &namereg, outfile);
-        found = true;
-        break;
-      }
-    }
-    p += matches[0].rm_eo;
-    if (found) continue;
-    UNREACHABLE
+    if (def.tdef.count) WRITE(tpdef, sizeof(tpdef) - 1);
+    WRITE(strut, sizeof(strut) - 1);
+    WRITE(def.strt.data, def.strt.count);
+    WRITE("{", 1);
+    dump_def(data, def, outfile);
+    WRITE("}", 1);
+    WRITE(def.tdef.data, def.tdef.count);
+    WRITE(";\n", 2);
+    if (def.strt.count || def.tdef.count)
+      dump_asserts(data, def, data.items[def.parent], data.items[def.parent], &namereg, outfile);
+    last = def.loc_end;
   }
-  size_t rest = (file.data + file.count) - p;
-  if ((ins = strstr(p, INSERT_STR)) != NULL && ins < p + rest) {
-    WRITE(p, ins - p);
+  size_t rest = (file.data + file.count) - last;
+  if ((ins = strstr(last, INSERT_STR)) != NULL && ins < last + rest) {
+    WRITE(last, ins - last);
     output_casts(data, outfile);
-    WRITE(ins + sizeof(INSERT_STR) - 1, rest - (ins - p) - (sizeof(INSERT_STR) - 1));
+    WRITE(ins + sizeof(INSERT_STR) - 1, file.data + file.count - (ins + sizeof(INSERT_STR) - 1));
   } else {
-    WRITE(p, rest);
+    WRITE(last, rest);
   }
-  regfree(&reg);
   regfree(&namereg);
 }
 #undef WRITE
@@ -503,17 +479,18 @@ int main(int argc, char *argv[]) {
     print_struct_def(strts, strts.items[i], 0);
   }
 #endif // DEBUG
-  collect_inherits(&strts);
+  String_View file = load_file(argv[1]);
+  collect_inherits(&strts, file);
 #ifdef DEBUG
   printf("-------------------------\n");
   printf("Structs after inheritance:\n");
   for (size_t i = 0; i < strts.items_count; i++) {
     print_struct_def(strts, strts.items[i], 0);
   }
+  printf("-------------------------\n");
 #endif // DEBUG
   // TODO: collect anonymous typedefs
   // will require making tdef an array
-  String_View file = load_file(argv[1]);
   FILE *outfile = stdout;
   if (strcmp(outstr, "-") != 0) outfile = fopen(outstr, "w");
   if (outfile == NULL) {
