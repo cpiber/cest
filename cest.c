@@ -276,7 +276,7 @@ void dump_def(StructArr data, StructDef def, FILE *outfile) {
   WRITE(def.defn.data, def.defn.count);
 }
 
-void write_type_name(StructDef def, FILE *outfile) {
+void dump_type_name(StructDef def, FILE *outfile) {
   static char strut[] = "struct ";
   if (def.strt.count) {
     WRITE(strut, sizeof(strut) - 1);
@@ -298,11 +298,11 @@ void dump_asserts(StructArr data, StructDef def, StructDef curparent, StructDef 
     static char assrt2[] = ") == offsetof(";
     static char assrt3[] = "), \"Offsets don't match\");\n";
     WRITE(assrt1, sizeof(assrt1) - 1);
-    write_type_name(def, outfile);
+    dump_type_name(def, outfile);
     WRITE(", ", 2);
     WRITE(p + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
     WRITE(assrt2, sizeof(assrt2) - 1);
-    write_type_name(curparent, outfile);
+    dump_type_name(curparent, outfile);
     WRITE(", ", 2);
     WRITE(p + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
     WRITE(assrt3, sizeof(assrt3) - 1);
@@ -310,8 +310,33 @@ void dump_asserts(StructArr data, StructDef def, StructDef curparent, StructDef 
   }
 }
 
+void dump_child_cast(StructDef in, String_View name, bool is_struct, bool ptr, FILE *outfile) {
+  static char stut[] = "struct ";
+  // <typename>: *(<parent>*)&(T)
+  // or
+  // <typename>*: (<parent>*)(T)
+  WRITE(", ", 2);
+  if (in.strt.count) {
+    WRITE(stut, sizeof(stut) - 1);
+    WRITE(in.strt.data, in.strt.count);
+  } else {
+    assert(in.tdef.count);
+    WRITE(in.tdef.data, in.tdef.count);
+  }
+  if (ptr) WRITE("*", 1);
+  WRITE(": ", 2);
+  if (!ptr) WRITE("*", 1);
+  WRITE("(", 1);
+  if (is_struct) WRITE(stut, sizeof(stut) - 1);
+  WRITE(name.data, name.count);
+  WRITE("*)", 2);
+  if (!ptr) WRITE("&", 1);
+  WRITE("(T)", 3);
+}
+
 // TODO: children of children should be possible to cast as well
-void out_cast(StructArr data, StructDef def, String_View name, bool is_struct, FILE *outfile) {
+void dump_cast(StructArr data, StructDef def, String_View name,
+    bool is_struct, bool ptr, FILE *outfile) {
   if (!def.inherits_count) return;
   static char defc[] = "#define CEST_AS_";
   static char strt[] = "struct_";
@@ -320,68 +345,16 @@ void out_cast(StructArr data, StructDef def, String_View name, bool is_struct, F
   WRITE(defc, sizeof(defc) - 1);
   if (is_struct) WRITE(strt, sizeof(strt) - 1);
   WRITE(name.data, name.count);
+  if (ptr) WRITE("S", 1);
   WRITE(gene, sizeof(gene) - 1);
   WRITE(", ", 2);
   if (is_struct) WRITE(stut, sizeof(stut) - 1);
   WRITE(name.data, name.count);
+  if (ptr) WRITE("*", 1);
   WRITE(": (T)", 5);
   for (size_t i = 0; i < def.inherits_count; ++i) {
     StructDef in = data.items[def.inherits[i]];
-    if (in.strt.count) {
-      WRITE(", ", 2);
-      WRITE(stut, sizeof(stut) - 1);
-      WRITE(in.strt.data, in.strt.count);
-      WRITE(": ", 2);
-      WRITE("*(", 2);
-      if (is_struct) WRITE(stut, sizeof(stut) - 1);
-      WRITE(name.data, name.count);
-      WRITE("*)&(T)", 6);
-    } else if (in.tdef.count) {
-      WRITE(", ", 2);
-      WRITE(in.tdef.data, in.tdef.count);
-      WRITE(": ", 2);
-      WRITE("*(", 2);
-      if (is_struct) WRITE(stut, sizeof(stut) - 1);
-      WRITE(name.data, name.count);
-      WRITE("*)&(T)", 6);
-    }
-  }
-  WRITE(")\n", 2);
-}
-void out_cast_ptr(StructArr data, StructDef def, String_View name, bool is_struct, FILE *outfile) {
-  if (!def.inherits_count) return;
-  static char defc[] = "#define CEST_AS_";
-  static char strt[] = "struct_";
-  static char gene[] = "S(T) _Generic((T)";
-  static char stut[] = "struct ";
-  WRITE(defc, sizeof(defc) - 1);
-  if (is_struct) WRITE(strt, sizeof(strt) - 1);
-  WRITE(name.data, name.count);
-  WRITE(gene, sizeof(gene) - 1);
-  WRITE(", ", 2);
-  if (is_struct) WRITE(stut, sizeof(stut) - 1);
-  WRITE(name.data, name.count);
-  WRITE("*: (T)", 6);
-  for (size_t i = 0; i < def.inherits_count; ++i) {
-    StructDef in = data.items[def.inherits[i]];
-    if (in.strt.count) {
-      WRITE(", ", 2);
-      WRITE(stut, sizeof(stut) - 1);
-      WRITE(in.strt.data, in.strt.count);
-      WRITE("*: ", 3);
-      WRITE("(", 1);
-      if (is_struct) WRITE(stut, sizeof(stut) - 1);
-      WRITE(name.data, name.count);
-      WRITE("*)(T)", 5);
-    } else if (in.tdef.count) {
-      WRITE(", ", 2);
-      WRITE(in.tdef.data, in.tdef.count);
-      WRITE("*: ", 3);
-      WRITE("(", 1);
-      if (is_struct) WRITE(stut, sizeof(stut) - 1);
-      WRITE(name.data, name.count);
-      WRITE("*)(T)", 5);
-    }
+    dump_child_cast(in, name, is_struct, ptr, outfile);
   }
   WRITE(")\n", 2);
 }
@@ -389,10 +362,10 @@ void out_cast_ptr(StructArr data, StructDef def, String_View name, bool is_struc
 void output_casts(StructArr data, FILE *outfile) {
   for (size_t i = 0; i < data.items_count; ++i) {
     StructDef def = data.items[i];
-    if (def.strt.count) out_cast(data, def, def.strt, true, outfile);
-    if (def.strt.count) out_cast_ptr(data, def, def.strt, true, outfile);
-    if (def.tdef.count) out_cast(data, def, def.tdef, false, outfile);
-    if (def.tdef.count) out_cast_ptr(data, def, def.tdef, false, outfile);
+    if (def.strt.count) dump_cast(data, def, def.strt, true, false, outfile);
+    if (def.strt.count) dump_cast(data, def, def.strt, true, true, outfile);
+    if (def.tdef.count) dump_cast(data, def, def.tdef, false, false, outfile);
+    if (def.tdef.count) dump_cast(data, def, def.tdef, false, true, outfile);
   }
 }
 
