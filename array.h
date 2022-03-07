@@ -10,17 +10,19 @@
 #define ARRAY_INIT_CAP 100
 #endif // ARRAY_INIT_CAP
 
-#define MAKE_ARRAY(T)   \
-  T *items;             \
-  size_t items_count;   \
-  size_t items_cap;
+#define MAKE_ARRAY(T, name)   \
+  T *name;                    \
+  size_t name ## _count;      \
+  size_t name ## _cap;
 
-#define ARRAY_PUSH(arr, item) do                                                                             \
-  {                                                                                                          \
-    size_t __i = _array_extend((void **)&(arr).items, &(arr).items_count, &(arr).items_cap, sizeof(item));   \
-    (arr).items[__i] = item;                                                                                 \
+#define ARRAY_PUSH(arr, name, item) do                                        \
+  {                                                                           \
+    size_t __i = _array_extend((void **)&(arr).name, &(arr).name ## _count,   \
+        &(arr).name ## _cap, sizeof(item));                                   \
+    (arr).name[__i] = item;                                                   \
   } while (0);
-#define ARRAY_EXTEND(arr, n) _array_extend_n((void **)&(arr).items, &(arr).items_count, &(arr).items_cap, sizeof((arr).items[0]), n)
+#define ARRAY_EXTEND(arr, name, n) _array_extend_n((void **)&(arr).name, &(arr).name ## _count, \
+    &(arr).name ## _cap, sizeof((arr).items[0]), n)
 
 void _array_extend_n(void **arr, size_t *cnt, size_t *cap, size_t size, size_t n) {
   assert(*cnt <= *cap);

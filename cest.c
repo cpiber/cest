@@ -57,12 +57,12 @@ typedef struct {
   String_View tdef;
   bool hasParent;
   size_t parent;
-  MAKE_ARRAY(size_t) // inherits
+  MAKE_ARRAY(size_t, inherits)
   char *loc_start;
   char *loc_end;
 } StructDef;
 typedef struct {
-  MAKE_ARRAY(StructDef)
+  MAKE_ARRAY(StructDef, items)
   const char *orig;
 } StructArr;
 
@@ -245,9 +245,9 @@ void collect_inherits(StructArr *structs, String_View file) {
           sv_eq(who, structs->items[i].tdef)) {
         new.parent = i;
         new.hasParent = true;
-        ARRAY_PUSH(*structs, new);
+        ARRAY_PUSH(*structs, items, new);
         if (new.strt.count || new.tdef.count) // TODO: is this good? parent-child broken...
-          ARRAY_PUSH(structs->items[i], structs->items_count - 1);
+          ARRAY_PUSH(structs->items[i], inherits, structs->items_count - 1);
         break;
       }
     }
@@ -312,7 +312,7 @@ void dump_asserts(StructArr data, StructDef def, StructDef curparent, StructDef 
 
 // TODO: children of children should be possible to cast as well
 void out_cast(StructArr data, StructDef def, String_View name, bool is_struct, FILE *outfile) {
-  if (!def.items_count) return;
+  if (!def.inherits_count) return;
   static char defc[] = "#define CEST_AS_";
   static char strt[] = "struct_";
   static char gene[] = "(T) _Generic((T)";
@@ -325,8 +325,8 @@ void out_cast(StructArr data, StructDef def, String_View name, bool is_struct, F
   if (is_struct) WRITE(stut, sizeof(stut) - 1);
   WRITE(name.data, name.count);
   WRITE(": (T)", 5);
-  for (size_t i = 0; i < def.items_count; ++i) {
-    StructDef in = data.items[def.items[i]];
+  for (size_t i = 0; i < def.inherits_count; ++i) {
+    StructDef in = data.items[def.inherits[i]];
     if (in.strt.count) {
       WRITE(", ", 2);
       WRITE(stut, sizeof(stut) - 1);
@@ -349,7 +349,7 @@ void out_cast(StructArr data, StructDef def, String_View name, bool is_struct, F
   WRITE(")\n", 2);
 }
 void out_cast_ptr(StructArr data, StructDef def, String_View name, bool is_struct, FILE *outfile) {
-  if (!def.items_count) return;
+  if (!def.inherits_count) return;
   static char defc[] = "#define CEST_AS_";
   static char strt[] = "struct_";
   static char gene[] = "S(T) _Generic((T)";
@@ -362,8 +362,8 @@ void out_cast_ptr(StructArr data, StructDef def, String_View name, bool is_struc
   if (is_struct) WRITE(stut, sizeof(stut) - 1);
   WRITE(name.data, name.count);
   WRITE("*: (T)", 6);
-  for (size_t i = 0; i < def.items_count; ++i) {
-    StructDef in = data.items[def.items[i]];
+  for (size_t i = 0; i < def.inherits_count; ++i) {
+    StructDef in = data.items[def.inherits[i]];
     if (in.strt.count) {
       WRITE(", ", 2);
       WRITE(stut, sizeof(stut) - 1);
@@ -446,10 +446,10 @@ void print_struct_def(StructArr arr, StructDef def, int level) {
   if (def.tdef.count) printf(SV_Fmt, SV_Arg(def.tdef));
   if (def.hasParent) printf(" (parent: %zu)", def.parent);
   printf("\n");
-  if (def.items_count) {
+  if (def.inherits_count) {
     printf("%*.sChildren:\n", level * 2, "");
-    for (size_t i = 0; i < def.items_count; ++i) {
-      print_struct_def(arr, arr.items[def.items[i]], level + 1);
+    for (size_t i = 0; i < def.inherits_count; ++i) {
+      print_struct_def(arr, arr.items[def.inherits[i]], level + 1);
     }
   }
 }
@@ -501,7 +501,7 @@ int main(int argc, char *argv[]) {
   replace_inherits(strts, file, outfile); 
   if (strcmp(outstr, "-") != 0) POSIX_WORK(fclose, outfile);
   free((void *)strts.orig);
-  for (size_t i = 0; i < strts.items_count; ++i) free((void *)strts.items[i].items);
+  for (size_t i = 0; i < strts.items_count; ++i) free((void *)strts.items[i].inherits);
   free((void *)strts.items);
   free((void *)file.data);
 }
