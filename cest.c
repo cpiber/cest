@@ -200,6 +200,7 @@ StructArr collect_structs(const char *filename) {
 }
 
 void collect_inherits(StructArr *structs, String_View file) {
+  // TODO: replace regex with better parser
   regex_t reg;
   REG_COMPILE(&reg, INHERIT_RE, REG_EXTENDED);
   regmatch_t matches[8];
@@ -310,7 +311,7 @@ void dump_asserts(StructArr data, StructDef def, StructDef curparent, StructDef 
   }
 }
 
-void dump_child_cast(StructDef in, String_View name, bool is_struct, bool ptr, FILE *outfile) {
+void dump_child_cast(StructArr data, StructDef in, String_View name, bool is_struct, bool ptr, FILE *outfile) {
   static char stut[] = "struct ";
   // <typename>: *(<parent>*)&(T)
   // or
@@ -332,9 +333,14 @@ void dump_child_cast(StructDef in, String_View name, bool is_struct, bool ptr, F
   WRITE("*)", 2);
   if (!ptr) WRITE("&", 1);
   WRITE("(T)", 3);
+
+  // recurse into children to allow casting up the chain
+  for (size_t i = 0; i < in.inherits_count; ++i) {
+    StructDef in2 = data.items[in.inherits[i]];
+    dump_child_cast(data, in2, name, is_struct, ptr, outfile);
+  }
 }
 
-// TODO: children of children should be possible to cast as well
 void dump_cast(StructArr data, StructDef def, String_View name,
     bool is_struct, bool ptr, FILE *outfile) {
   if (!def.inherits_count) return;
@@ -354,7 +360,7 @@ void dump_cast(StructArr data, StructDef def, String_View name,
   WRITE(": (T)", 5);
   for (size_t i = 0; i < def.inherits_count; ++i) {
     StructDef in = data.items[def.inherits[i]];
-    dump_child_cast(in, name, is_struct, ptr, outfile);
+    dump_child_cast(data, in, name, is_struct, ptr, outfile);
   }
   WRITE(")\n", 2);
 }
@@ -370,6 +376,7 @@ void output_casts(StructArr data, FILE *outfile) {
 }
 
 void replace_inherits(StructArr data, String_View file, FILE *outfile) {
+  // TODO: replace regex with better parser
   regex_t namereg;
   REG_COMPILE(&namereg, STRUCT_NAME_RE, REG_EXTENDED);
   char *ins = NULL;
