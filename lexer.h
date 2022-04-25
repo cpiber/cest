@@ -20,7 +20,6 @@ typedef enum {
   TK_SEP,
   TK_OP,
   TK_ACCESS,
-  TK_CHAR,
   TK_LIT,
 } TokenKind;
 typedef struct {
@@ -39,6 +38,7 @@ typedef struct {
   TokenOrEnd peek;
 } Lexer;
 
+Lexer lexer_create(String_View filename, String_View content);
 TokenOrEnd lexer_peek_token(Lexer*);
 TokenOrEnd lexer_get_token(Lexer*);
 void lexer_print_loc(Location, FILE*);

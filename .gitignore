@@ -2,3 +2,4 @@ cest
 peda-*
 .gdb*
 .vscode
+test/**/*.exe

@@ -12,6 +12,14 @@
   } while(0)
 
 
+Lexer lexer_create(String_View filename, String_View content) {
+  return (Lexer) {
+    .content = content,
+    .loc = { .filename = filename },
+  };
+}
+
+
 static bool is_space_not_newline(char c) {
   return isspace(c) && c != '\n';
 }
@@ -151,7 +159,7 @@ TokenOrEnd lexer_peek_token(Lexer *lexer) {
     lexer_consume_number_lit(lexer, &token);
   } else if (c == '(' || c == ')' || c == '[' || c == ']' || c == '{' || c == '}') {
     PRODUCE(TK_PAREN);
-  } else if (c == ';' || c == ',' || c == ':') {
+  } else if (c == ';' || c == ',' || c == ':' || c == '?') {
     PRODUCE(TK_SEP);
   } else if (c == '.') {
     if (lexer->content.count >= 3 && lexer->content.data[1] == '.' && lexer->content.data[2] == '.') {
@@ -181,7 +189,7 @@ TokenOrEnd lexer_peek_token(Lexer *lexer) {
     lexer_consume_char(lexer, &token); // op
     SV_PEEK(lexer->content, 0, cc, if (cc == c || c == '=') lexer_consume_char(lexer, &token));
   } else if (c == '\'') {
-    last_kind = TK_CHAR;
+    last_kind = TK_LIT;
     lexer_consume_char(lexer, &token); // '
     SV_PEEK(lexer->content, 0, cc, if (cc == '\\') lexer_consume_char(lexer, &token));
     if (lexer->content.count <= 1 || lexer->content.data[1] != '\'') lexer_print_err(lexer->loc, stderr, "Unclosed character literal");
@@ -262,7 +270,6 @@ void lexer_print_token(Token token, FILE *stream) {
   case TK_SEP: fprintf(stream, "TK_SEP"); break;
   case TK_OP: fprintf(stream, "TK_OP"); break;
   case TK_ACCESS: fprintf(stream, "TK_ACCESS"); break;
-  case TK_CHAR: fprintf(stream, "TK_CHAR"); break;
   case TK_LIT: fprintf(stream, "TK_LIT"); break;
   default: assert(0);
   }
