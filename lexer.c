@@ -239,6 +239,13 @@ TokenOrEnd lexer_get_token(Lexer *lexer) {
   return token;
 }
 
+Token lexer_expect_token(Lexer *lexer) {
+  TokenOrEnd token = lexer_get_token(lexer);
+  if (!token.has_value)
+    lexer_print_err(lexer->loc, stderr, "Expected token but got end of file");
+  return token.token;
+}
+
 void lexer_print_loc(Location loc, FILE *stream) {
   fprintf(stream, SV_Fmt ":%zu:%zu", SV_Arg(loc.filename), loc.line + 1, loc.col + 1);
 }

@@ -10,7 +10,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
-// #define DEBUG
+#define DEBUG
 
 #include "array.h"
 #include "lexer.h"
@@ -148,56 +148,117 @@ String_View load_file(const char *filename) {
   };
 }
 
-ssize_t next_struct(regex_t *reg, char *file, String_View *def, String_View *strt, String_View *tpdef) {
-  regmatch_t matches[6];
-  if (regexec(reg, file, sizeof(matches)/sizeof(matches[0]), matches, 0) != 0) return -1;
-  if (def) {
-    *def = (String_View) {
-      .count = matches[4].rm_eo - matches[4].rm_so,
-      .data = file + matches[4].rm_so,
-    };
+bool parse_structdef(Lexer *lexer, String_View *strt, String_View *def) {
+  TokenOrEnd nameOrParen = lexer_peek_token(lexer);
+  if (nameOrParen.has_value && nameOrParen.token.kind == TK_NAME) {
+    *strt = nameOrParen.token.content;
+    lexer_expect_token(lexer);
   }
-  if (strt) {
-    *strt = (String_View) {
-      .count = matches[3].rm_eo - matches[3].rm_so,
-      .data = file + matches[3].rm_so,
-    };
+  Token paren = lexer_expect_token(lexer);
+  if (paren.kind != TK_PAREN)
+    lexer_print_err(paren.loc, stderr, "Expected identifier or `{'");
+  if (sv_eq(paren.content, SV("("))) {
+    TokenOrEnd tok = lexer_get_token(lexer);
+    while (tok.has_value && tok.token.kind != TK_PAREN && !sv_eq(tok.token.content, SV(")"))) tok = lexer_get_token(lexer);
+    return false; // ignore inherits for now
   }
-  if (tpdef) {
-    *tpdef = (String_View) {
-      .count = matches[5].rm_eo - matches[5].rm_so,
-      .data = file + matches[5].rm_so,
-    };
+  if (!sv_eq(paren.content, SV("{")))
+    lexer_print_err(paren.loc, stderr, "Expected identifier or `{'");
+  
+  *def = lexer->content;
+  TokenOrEnd ntoken = lexer_peek_token(lexer);
+  while (ntoken.has_value) {
+    // TODO: maybe error check definition contents
+    if (ntoken.token.kind == TK_PAREN && sv_eq(ntoken.token.content, SV("}")))
+      break;
+    lexer_expect_token(lexer);
+    ntoken = lexer_peek_token(lexer);
   }
-  return matches[0].rm_eo;
+  Token token = lexer_expect_token(lexer);
+  if (token.kind != TK_PAREN || !sv_eq(token.content, SV("}")))
+    lexer_print_err(token.loc, stderr, "Expected `}'");
+  def->count = token.content.data - def->data;
+  return true;
+}
+
+void parse_struct(StructArr *structs, Lexer *lexer) {
+  String_View strt = {0}, def = {0};
+  if (!parse_structdef(lexer, &strt, &def)) return;
+  Token semi = lexer_expect_token(lexer);
+  if (semi.kind != TK_SEP || !sv_eq(semi.content, SV(";")))
+    lexer_print_err(semi.loc, stderr, "Expected `;'");
+  
+  StructDef item = (StructDef) {
+    .defn = def,
+    .strt = strt,
+  };
+  ARRAY_PUSH(*structs, items, item);
+}
+
+void parse_typedef(StructArr *structs, Lexer *lexer) {
+  Token token = lexer_expect_token(lexer);
+  if (token.kind != TK_STRUCT) return;
+  String_View strt = {0}, def = {0};
+  if (!parse_structdef(lexer, &strt, &def)) return;
+  
+  TokenOrEnd nameOrSemi = lexer_peek_token(lexer);
+  String_View tpdef;
+  if (nameOrSemi.has_value && nameOrSemi.token.kind == TK_NAME) {
+    tpdef = nameOrSemi.token.content;
+    lexer_expect_token(lexer);
+  }
+  Token semi = lexer_expect_token(lexer);
+  if (semi.kind != TK_SEP || !sv_eq(semi.content, SV(";")))
+    lexer_print_err(semi.loc, stderr, "Expected `;'");
+  
+  StructDef item = (StructDef) {
+    .defn = def,
+    .strt = strt,
+    .tdef = tpdef,
+  };
+  ARRAY_PUSH(*structs, items, item);
 }
 
 StructArr collect_structs(const char *filename) {
-  regex_t reg;
-  REG_COMPILE(&reg, STRUCT_RE, REG_EXTENDED);
   String_View file = preprocess_file(filename);
   assert(file.data[file.count] == 0);
 
-  char *p = (char *)file.data;
-  ssize_t err;
-  size_t n, i;
-  for (n = 0; (err = next_struct(&reg, p, NULL, NULL, NULL)) >= 0; ++n, p += err);
-  StructDef *structs = malloc(n * sizeof(*structs));
-  memset(structs, 0, n * sizeof(*structs));
-  if (structs == NULL) {
-    perror("malloc");
+  StructArr structs = {0};
+  char *fname = malloc(strlen(filename) + sizeof(" (preprocessed)"));
+  if (fname == NULL) {
+    perror("malloc filename");
     exit(1);
   }
-  p = (char *)file.data;
-  for (i = 0; (err = next_struct(&reg, p, &structs[i].defn, &structs[i].strt, &structs[i].tdef)) >= 0; ++i, p += err);
-  assert(i == n);
-  regfree(&reg);
-  return (StructArr) {
-    .items = structs,
-    .items_count = n,
-    .items_cap = n,
-    .orig = file.data,
-  };
+  strcpy(fname, filename);
+  strcat(fname, " (preprocessed)");
+  Lexer lexer = lexer_create(sv_from_cstr(fname), file);
+  size_t depth = 0;
+
+  TokenOrEnd token = lexer_get_token(&lexer);
+  for (; token.has_value; token = lexer_get_token(&lexer)) {
+    Token t = token.token;
+    if (t.kind == TK_PAREN && sv_eq(t.content, SV("}"))) {
+      depth -= 1;
+      continue;
+    }
+    if (t.kind == TK_PAREN && sv_eq(t.content, SV("{"))) {
+      depth += 1;
+      continue;
+    }
+    if (t.kind == TK_TYPEDF) {
+      parse_typedef(&structs, &lexer);
+      continue;
+    }
+    if (t.kind == TK_STRUCT) {
+      parse_struct(&structs, &lexer);
+      continue;
+    }
+    // ignore everything else
+  }
+  if (depth != 0)
+    lexer_print_err(lexer.loc, stderr, "Unclosed block");
+  
+  return structs;
 }
 
 void collect_inherits(StructArr *structs, String_View file) {
