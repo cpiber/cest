@@ -28,28 +28,10 @@
   } while(0);
 #define UNREACHABLE do { assert(0 && "unreachable"); exit(99); } while(0);
 
-#define REG_COMPILE(preg, regex, cflags) do                                   \
-  {                                                                           \
-    int err;                                                                  \
-    if ((err = regcomp(preg, regex, cflags))) {                               \
-      static char errbuf[200];                                                \
-      assert(regerror(err, preg, errbuf, sizeof(errbuf)) < sizeof(errbuf));   \
-      fprintf(stderr, "Error compiling regex `%s`: %s\n", regex, errbuf);     \
-      exit(1);                                                                \
-    }                                                                         \
-  } while(0);
-
-#define IDENT_RE "[A-Za-z_][A-Za-z0-9_]*"
-// TODO: This does not consider typedef`s without body (i.e. forward defs)
-#define STRUCT_RE "(typedef\\s+)?struct\\s*(\\s(" IDENT_RE "))?\\s*" \
-  "\\{([^}]*)\\}\\s*(" IDENT_RE ")?\\s*;"
-// TODO: implement multiple inheritance
-#define INHERIT_RE "(typedef\\s+)?struct\\s*(\\s(" IDENT_RE "))?\\s*"   \
-  "\\(\\s*(struct\\s+)?(" IDENT_RE ")\\s*\\)\\s*"                       \
-  "\\{([^}]*)\\}\\s*(" IDENT_RE ")?\\s*;"
-#define STRUCT_NAME_RE "(" IDENT_RE ")\\s*;"
 #define INSERT_STR "CEST_MACROS_HERE"
 
+// TODO: does not consider typedef`s without body (i.e. forward defs)
+// TODO: implement multiple inheritance
 
 
 typedef struct {
@@ -61,6 +43,7 @@ typedef struct {
   MAKE_ARRAY(size_t, inherits)
   const char *loc_start;
   const char *loc_end;
+  const char *loc_after;
 } StructDef;
 typedef struct {
   MAKE_ARRAY(StructDef, items)
@@ -196,9 +179,6 @@ bool parse_structdef(Lexer *lexer, String_View *strt, String_View *def, bool *is
 void parse_struct(StructArr *structs, Lexer *lexer) {
   String_View strt = {0}, def = {0};
   if (parse_structdef(lexer, &strt, &def, NULL, NULL)) return;
-  Token semi = lexer_expect_token(lexer);
-  if (semi.kind != TK_SEP || !sv_eq(semi.content, SV(";")))
-    lexer_print_err(semi.loc, stderr, "Expected `;'");
   
   StructDef item = (StructDef) {
     .defn = def,
@@ -219,9 +199,6 @@ void parse_typedef(StructArr *structs, Lexer *lexer) {
     tpdef = nameOrSemi.token.content;
     lexer_expect_token(lexer);
   }
-  Token semi = lexer_expect_token(lexer);
-  if (semi.kind != TK_SEP || !sv_eq(semi.content, SV(";")))
-    lexer_print_err(semi.loc, stderr, "Expected `;'");
   
   StructDef item = (StructDef) {
     .defn = def,
@@ -270,15 +247,12 @@ StructArr collect_structs(const char *filename) {
   if (depth != 0)
     lexer_print_err(lexer.loc, stderr, "Unclosed block");
   
+  free(fname);
   return structs;
 }
 
 bool parse_struct_inherit(Lexer *lexer, String_View *strt, String_View *def, bool *is_struct, String_View *who) {
-  if (!parse_structdef(lexer, strt, def, is_struct, who)) return false;
-  Token semi = lexer_expect_token(lexer);
-  if (semi.kind != TK_SEP || !sv_eq(semi.content, SV(";")))
-    lexer_print_err(semi.loc, stderr, "Expected `;'");
-  return true;
+  return parse_structdef(lexer, strt, def, is_struct, who);
 }
 
 bool parse_typedef_inherit(Lexer *lexer, String_View *strt, String_View *def, String_View *tpdef, bool *is_struct, String_View *who) {
@@ -291,9 +265,6 @@ bool parse_typedef_inherit(Lexer *lexer, String_View *strt, String_View *def, St
     *tpdef = nameOrSemi.token.content;
     lexer_expect_token(lexer);
   }
-  Token semi = lexer_expect_token(lexer);
-  if (semi.kind != TK_SEP || !sv_eq(semi.content, SV(";")))
-    lexer_print_err(semi.loc, stderr, "Expected `;'");
   return true;
 }
 
@@ -334,9 +305,16 @@ void collect_inherits(StructArr *structs, String_View file, String_View filename
         continue;
     }
     
-    new.loc_end = lexer.content.data;
+    new.loc_end = lexer.content.data - new.tdef.count;
     if (!new.strt.count && !new.tdef.count) {
       fprintf(stderr, "Warning: neither struct name nor typedef given for child of `" SV_Fmt "`\n", SV_Arg(who));
+    }
+
+    for (; token.has_value; token = lexer_get_token(&lexer)) {
+      if (token.token.kind == TK_SEP && sv_eq(token.token.content, SV(";"))) {
+        new.loc_after = lexer.content.data;
+        break;
+      }
     }
 
     for (size_t i = 0; i < structs->items_count; ++i) {
@@ -386,27 +364,63 @@ void dump_type_name(StructDef def, FILE *outfile) {
   }
 }
 
-void dump_asserts(StructArr data, StructDef def, StructDef curparent, StructDef parent, regex_t *reg, FILE *outfile) {
+char *struct_to_name(StructDef def) {
+  const size_t n = def.strt.count ? sizeof("struct ") + def.strt.count : 0;
+  const size_t m = n && def.tdef.count ? 3 : 0;
+  char *fname = malloc(n + def.tdef.count + m + sizeof(" struct body"));
+  if (fname == NULL) {
+    perror("malloc filename");
+    exit(1);
+  }
+  if (n) {
+    strcpy(fname, "struct ");
+    strncat(fname, def.strt.data, def.strt.count);
+  }
+  if (m) strcat(fname, " / ");
+  strncat(fname, def.tdef.data, def.tdef.count);
+  strcat(fname, " struct body");
+  return fname;
+}
+
+String_View extract_property(Lexer *lexer) {
+  String_View last_name = {0};
+  while (true) {
+    Token token = lexer_expect_token(lexer);
+    if (token.kind == TK_NAME) last_name = token.content;
+    else if (token.kind == TK_SEP && sv_eq(token.content, SV(";"))) break;
+  }
+  return last_name;
+}
+
+void dump_asserts(StructArr data, StructDef def, StructDef curparent, StructDef parent, FILE *outfile) {
   // dump asserts for all fields in parent chain, but with actual parent name
-  if (parent.hasParent) dump_asserts(data, def, curparent, data.items[parent.parent], reg, outfile);
-  regmatch_t matches[2];
-  char *p = (char *)parent.defn.data;
-  while ((regexec(reg, p, sizeof(matches)/sizeof(matches[0]), matches, 0)) == 0) {
-    if (p + matches[0].rm_so >= parent.defn.data + parent.defn.count) break;
+  if (parent.hasParent) dump_asserts(data, def, curparent, data.items[parent.parent], outfile);
+
+  char *fname = struct_to_name(parent);
+  Lexer lexer = lexer_create(sv_from_cstr(fname), parent.defn);
+  TokenOrEnd token = lexer_get_token(&lexer);
+  for (; token.has_value; token = lexer_get_token(&lexer)) {
+    Token t = token.token;
+    if (t.kind != TK_NAME)
+      lexer_print_err(t.loc, stderr, "Expected a type");
+    String_View property = extract_property(&lexer);
+    if (!property.count)
+      lexer_print_err(t.loc, stderr, "Not a valid property");
+    
     static char assrt1[] = "_Static_assert(offsetof(";
     static char assrt2[] = ") == offsetof(";
     static char assrt3[] = "), \"Offsets don't match\");\n";
     WRITE(assrt1, sizeof(assrt1) - 1);
     dump_type_name(def, outfile);
     WRITE(", ", 2);
-    WRITE(p + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
+    WRITE(property.data, property.count);
     WRITE(assrt2, sizeof(assrt2) - 1);
     dump_type_name(curparent, outfile);
     WRITE(", ", 2);
-    WRITE(p + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
+    WRITE(property.data, property.count);
     WRITE(assrt3, sizeof(assrt3) - 1);
-    p += matches[0].rm_eo;
   }
+  free(fname);
 }
 
 void dump_child_cast(StructArr data, StructDef in, String_View name, bool is_struct, bool ptr, FILE *outfile) {
@@ -474,11 +488,8 @@ void output_casts(StructArr data, FILE *outfile) {
 }
 
 void replace_inherits(StructArr data, String_View file, FILE *outfile) {
-  // TODO: replace regex with better parser
-  regex_t namereg;
-  REG_COMPILE(&namereg, STRUCT_NAME_RE, REG_EXTENDED);
   char *ins = NULL;
-  const char *last = (char *)file.data;
+  const char *last = file.data;
   // items are guaranteed to be in order
   for (size_t i = 0; i < data.items_count; ++i) {
     StructDef def = data.items[i];
@@ -499,11 +510,11 @@ void replace_inherits(StructArr data, String_View file, FILE *outfile) {
     WRITE("{", 1);
     dump_def(data, def, outfile);
     WRITE("}", 1);
-    WRITE(def.tdef.data, def.tdef.count);
-    WRITE(";\n", 2);
+    WRITE(def.loc_end, def.loc_after - def.loc_end);
+    WRITE("\n", 1);
     if (def.strt.count || def.tdef.count)
-      dump_asserts(data, def, data.items[def.parent], data.items[def.parent], &namereg, outfile);
-    last = def.loc_end;
+      dump_asserts(data, def, data.items[def.parent], data.items[def.parent], outfile);
+    last = def.loc_after;
   }
   size_t rest = (file.data + file.count) - last;
   if ((ins = strstr(last, INSERT_STR)) != NULL && ins < last + rest) {
@@ -513,7 +524,6 @@ void replace_inherits(StructArr data, String_View file, FILE *outfile) {
   } else {
     WRITE(last, rest);
   }
-  regfree(&namereg);
 }
 #undef WRITE
 

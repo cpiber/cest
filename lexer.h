@@ -21,6 +21,7 @@ typedef enum {
   TK_OP,
   TK_ACCESS,
   TK_LIT,
+  TK_ATTRIB,
 } TokenKind;
 typedef struct {
   Location loc;

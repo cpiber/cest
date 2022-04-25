@@ -223,6 +223,8 @@ TokenOrEnd lexer_peek_token(Lexer *lexer) {
       last_kind = TK_ENUM;
     } else if (sv_eq(token, SV("true")) || sv_eq(token, SV("false"))) {
       last_kind = TK_LIT;
+    } else if (sv_eq(token, SV("const")) || sv_eq(token, SV("__attribute__"))) {
+      last_kind = TK_ATTRIB;
     }
   }
   lexer->peek.token = (Token) {
@@ -278,6 +280,7 @@ void lexer_print_token(Token token, FILE *stream) {
   case TK_OP: fprintf(stream, "TK_OP"); break;
   case TK_ACCESS: fprintf(stream, "TK_ACCESS"); break;
   case TK_LIT: fprintf(stream, "TK_LIT"); break;
+  case TK_ATTRIB: fprintf(stream, "TK_ATTRIB"); break;
   default: assert(0);
   }
   fprintf(stream, " " SV_Fmt "\n", SV_Arg(token.content));
