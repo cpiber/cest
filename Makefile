@@ -1,17 +1,18 @@
 EXAMPLES := $(wildcard examples/*)
+CFLAGS = -g -std=c11 -pedantic -Wall -Wextra -Werror -Wunused -Wswitch-enum
 
 .PHONY: clean run run_examples
 
 all: cest
 
-cest: cest.c array.h sv.h
-	gcc -g -std=c11 -pedantic -Wall -Wextra -Werror -Wunused cest.c -o cest
+cest: cest.c array.h sv.h lexer.c
+	$(CC) $(CFLAGS) cest.c lexer.c -o cest
 
 .SECONDEXPANSION:
 examples: $(EXAMPLES)
 $(EXAMPLES): cest $$(patsubst %.h.in,%.h,$$(wildcard $$@/*.h.in)) $$(wildcard $$@/*.c) 
 	@echo " -- Making example $(notdir $@) -- "
-	gcc $(wildcard $@/*.c) -o $@/$(notdir $@)
+	$(CC) $(CFLAGS) $(wildcard $@/*.c) -o $@/$(notdir $@)
 	@echo
 examples/%.h: cest examples/%.h.in
 	./cest $@.in $@

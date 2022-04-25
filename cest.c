@@ -12,9 +12,10 @@
 
 // #define DEBUG
 
+#include "array.h"
+#include "lexer.h"
 #define SV_IMPLEMENTATION
-#include "./sv.h"
-#include "./array.h"
+#include "sv.h"
 
 #define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)
@@ -484,4 +485,5 @@ int main(int argc, char *argv[]) {
   for (size_t i = 0; i < strts.items_count; ++i) free((void *)strts.items[i].inherits);
   free((void *)strts.items);
   free((void *)file.data);
+  return 0;
 }
