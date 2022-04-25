@@ -1,0 +1,16 @@
+#pragma once
+#include <stddef.h>
+
+typedef struct {
+  size_t b1;
+} Base;
+
+typedef struct (Base) {
+  size_t b2;
+} Child1;
+
+typedef struct (Child1) {
+  size_t b3;
+} Child2;
+
+CEST_MACROS_HERE
