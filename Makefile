@@ -32,9 +32,12 @@ run_examples: examples
 		echo; \
 	done
 test: tests
-	@for t in $(foreach t,$(TESTS),$(wildcard $t/*.exe)); do \
+	@for t in $(foreach t,$(TESTS),$(patsubst %.c,%.exe,$(wildcard $t/*.c))); do \
 		$$t && echo "Test $$t ran successfully"; \
 	done
+
+spitter: cest.c array.h sv.h lexer.h lexer.c test/spitter.c
+	$(CC) $(CFLAGS) test/spitter.c lexer.c -o test/spitter.exe
 
 valgrind: cest
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes -s ./cest examples/test/test.h.in -

@@ -3,11 +3,11 @@
 #include <stdarg.h>
 #include "lexer.h"
 
-#define SV_PEEK(sv, i, name, body) { \
-    if (sv.count > i) { const char name = sv.data[i]; body; } \
+#define SV_PEEK(sv, i, name, body) {                              \
+    if ((sv).count > i) { const char name = (sv).data[i]; body; } \
   } while(0)
-#define PRODUCE(kind) { \
-    last_kind = kind; \
+#define PRODUCE(kind) {                \
+    last_kind = kind;                  \
     lexer_consume_char(lexer, &token); \
   } while(0)
 
@@ -116,9 +116,16 @@ static void lexer_consume_line_comment(Lexer *lexer, String_View *sv) {
 }
 
 static void lexer_consume_block_comment(Lexer *lexer, String_View *sv) {
-  (void) lexer;
-  (void) sv;
-  assert(0 && "TODO");
+  assert(lexer->content.count > 0 && lexer->content.data[0] == '*');
+  lexer_consume_char(lexer, sv); // *
+  while (lexer->content.count) {
+    const char c = lexer->content.data[0];
+    lexer_consume_char(lexer, sv);
+    if (c == '*') SV_PEEK(*sv, 0, cc, if (cc == '/') {
+      lexer_consume_char(lexer, sv);
+      return;
+    });
+  }
 }
 
 static void lexer_consume_string(Lexer *lexer, String_View *sv) {
@@ -152,7 +159,7 @@ TokenOrEnd lexer_peek_token(Lexer *lexer) {
   const char c = lexer->content.data[0];
   if (isspace(c)) {
     assert(0 && "unreachable: lexer_remove_space should have removed this");
-  } else if (isalpha(c)) {
+  } else if (isalpha(c) || c == '_') {
     while (lexer->content.count && is_ident(lexer->content.data[0])) lexer_consume_char(lexer, &token); // TODO: \+newline is permissible
   } else if (isdigit(c)) {
     last_kind = TK_LIT;
@@ -179,7 +186,7 @@ TokenOrEnd lexer_peek_token(Lexer *lexer) {
       if (cc == '/') {
         last_kind = TK_COMMENT;
         lexer_consume_line_comment(lexer, &token);
-      } else if (c == '*') {
+      } else if (cc == '*') {
         last_kind = TK_COMMENT;
         lexer_consume_block_comment(lexer, &token);
       }
@@ -227,13 +234,6 @@ TokenOrEnd lexer_peek_token(Lexer *lexer) {
 }
 
 TokenOrEnd lexer_get_token(Lexer *lexer) {
-  if (lexer->peek.has_value) {
-    lexer->peek.has_value = false;
-    return (TokenOrEnd) {
-      .has_value = true,
-      .token = lexer->peek.token
-    };
-  }
   TokenOrEnd token = lexer_peek_token(lexer);
   lexer->peek.has_value = false;
   return token;

@@ -6,6 +6,8 @@ int main() {
   // Number literals
   lexer = lexer_create(TEST, SV("123"));
   EXPECT_TOKEN(TK_LIT, "123"); EXPECT_EMPTY;
+  lexer = lexer_create(TEST, SV("123\n"));
+  EXPECT_TOKEN(TK_LIT, "123"); EXPECT_EMPTY;
   lexer = lexer_create(TEST, SV("123L"));
   EXPECT_TOKEN(TK_LIT, "123L"); EXPECT_EMPTY;
   lexer = lexer_create(TEST, SV("123LU"));
@@ -30,6 +32,8 @@ int main() {
   EXPECT_TOKEN(TK_LIT, "'a'"); EXPECT_EMPTY;
   lexer = lexer_create(TEST, SV("'\\a'"));
   EXPECT_TOKEN(TK_LIT, "'\\a'"); EXPECT_EMPTY;
+  lexer = lexer_create(TEST, SV("'\\''"));
+  EXPECT_TOKEN(TK_LIT, "'\\''"); EXPECT_EMPTY;
   lexer = lexer_create(TEST, SV("'ab'"));
   EXPECT_ERROR;
   lexer = lexer_create(TEST, SV("'a"));
@@ -38,6 +42,8 @@ int main() {
   // string literals
   lexer = lexer_create(TEST, SV("\"a\""));
   EXPECT_TOKEN(TK_LIT, "\"a\""); EXPECT_EMPTY;
+  lexer = lexer_create(TEST, SV("\"a\\\n\""));
+  EXPECT_TOKEN(TK_LIT, "\"a\\\n\""); EXPECT_EMPTY;
   lexer = lexer_create(TEST, SV("\"a\\\"\""));
   EXPECT_TOKEN(TK_LIT, "\"a\\\"\""); EXPECT_EMPTY;
   lexer = lexer_create(TEST, SV("\"a\\\"test\""));

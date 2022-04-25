@@ -442,6 +442,7 @@ void usage(FILE *stream, const char *program) {
 }
 
 
+#ifndef NO_MAIN
 int main(int argc, char *argv[]) {
   if (argc > 1 && strcmp(argv[1], "-h") == 0) {
     usage(stdout, argv[0]);
@@ -487,3 +488,4 @@ int main(int argc, char *argv[]) {
   free((void *)file.data);
   return 0;
 }
+#endif // NO_MAIN
