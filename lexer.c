@@ -121,7 +121,7 @@ static void lexer_consume_block_comment(Lexer *lexer, String_View *sv) {
   while (lexer->content.count) {
     const char c = lexer->content.data[0];
     lexer_consume_char(lexer, sv);
-    if (c == '*') SV_PEEK(*sv, 0, cc, if (cc == '/') {
+    if (c == '*') SV_PEEK(lexer->content, 0, cc, if (cc == '/') {
       lexer_consume_char(lexer, sv);
       return;
     });

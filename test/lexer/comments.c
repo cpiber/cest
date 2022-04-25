@@ -22,4 +22,6 @@ int main() {
   EXPECT_TOKEN(TK_COMMENT, "/* asf \n test \\*/"); EXPECT_EMPTY;
   lexer = lexer_create(TEST, SV("/* asf"));
   EXPECT_TOKEN(TK_COMMENT, "/* asf"); EXPECT_EMPTY;
+  lexer = lexer_create(TEST, SV("/* asf * */"));
+  EXPECT_TOKEN(TK_COMMENT, "/* asf * */"); EXPECT_EMPTY;
 }
