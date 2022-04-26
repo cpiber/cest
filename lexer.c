@@ -136,11 +136,11 @@ static void lexer_consume_string(Lexer *lexer, String_View *sv) {
     lexer_consume_char(lexer, sv);
     if (c == '"') return;
     if (c == '\\') {
-      if (!lexer->content.count) lexer_print_err(lexer->loc, stderr, "Unclosed string literal");
+      if (!lexer->content.count) lexer_exit_err(lexer->loc, stderr, "Unclosed string literal");
       lexer_consume_char(lexer, sv);
     }
   }
-  lexer_print_err(lexer->loc, stderr, "Unclosed string literal");
+  lexer_exit_err(lexer->loc, stderr, "Unclosed string literal");
 }
 
 TokenOrEnd lexer_peek_token(Lexer *lexer) {
@@ -199,7 +199,7 @@ TokenOrEnd lexer_peek_token(Lexer *lexer) {
     last_kind = TK_LIT;
     lexer_consume_char(lexer, &token); // '
     SV_PEEK(lexer->content, 0, cc, if (cc == '\\') lexer_consume_char(lexer, &token));
-    if (lexer->content.count <= 1 || lexer->content.data[1] != '\'') lexer_print_err(lexer->loc, stderr, "Unclosed character literal");
+    if (lexer->content.count <= 1 || lexer->content.data[1] != '\'') lexer_exit_err(lexer->loc, stderr, "Unclosed character literal");
     lexer_consume_char(lexer, &token); // char
     lexer_consume_char(lexer, &token); // '
   } else if (c == '"') {
@@ -209,7 +209,7 @@ TokenOrEnd lexer_peek_token(Lexer *lexer) {
     last_kind = TK_DIRECTIVE;
     lexer_consume_directive(lexer, &token);
   } else {
-    lexer_print_err(lexer->loc, stderr, "Unknown token starts with '%c'", c);
+    lexer_exit_err(lexer->loc, stderr, "Unknown token starts with '%c'", c);
   }
 
   lexer->peek.has_value = true;
@@ -244,28 +244,38 @@ TokenOrEnd lexer_get_token(Lexer *lexer) {
 Token lexer_expect_token(Lexer *lexer) {
   TokenOrEnd token = lexer_get_token(lexer);
   if (!token.has_value)
-    lexer_print_err(lexer->loc, stderr, "Expected token but got end of file");
+    lexer_exit_err(lexer->loc, stderr, "Expected token but got end of file");
   return token.token;
 }
 
-void lexer_print_loc(Location loc, FILE *stream) {
+void lexer_dump_loc(Location loc, FILE *stream) {
   fprintf(stream, SV_Fmt ":%zu:%zu", SV_Arg(loc.filename), loc.line + 1, loc.col + 1);
 }
 
-void lexer_print_err(Location loc, FILE *stream, char *fmt, ...) {
+void lexer_dump_err(Location loc, FILE *stream, char *fmt, ...) {
   fprintf(stream, "ERROR: ");
-  lexer_print_loc(loc, stream);
+  lexer_dump_loc(loc, stream);
   fprintf(stream, ": ");
   va_list args;
   va_start(args, fmt);
   vfprintf(stream, fmt, args);
   va_end(args);
   fprintf(stream, "\n");
-  exit(1);
 }
 
-void lexer_print_token(Token token, FILE *stream) {
-  lexer_print_loc(token.loc, stream);
+void lexer_dump_warn(Location loc, FILE *stream, char *fmt, ...) {
+  fprintf(stream, "WARNING: ");
+  lexer_dump_loc(loc, stream);
+  fprintf(stream, ": ");
+  va_list args;
+  va_start(args, fmt);
+  vfprintf(stream, fmt, args);
+  va_end(args);
+  fprintf(stream, "\n");
+}
+
+void lexer_dump_token(Token token, FILE *stream) {
+  lexer_dump_loc(token.loc, stream);
   fprintf(stream, ": ");
   switch (token.kind)
   {

@@ -43,6 +43,8 @@ Lexer lexer_create(String_View filename, String_View content);
 TokenOrEnd lexer_peek_token(Lexer*);
 TokenOrEnd lexer_get_token(Lexer*);
 Token lexer_expect_token(Lexer*);
-void lexer_print_loc(Location, FILE*);
-__attribute__((format(printf,3,4))) void lexer_print_err(Location, FILE*, char *fmt, ...);
-void lexer_print_token(Token, FILE*);
+void lexer_dump_loc(Location, FILE*);
+__attribute__((format(printf,3,4))) void lexer_dump_err(Location, FILE*, char *fmt, ...);
+#define lexer_exit_err(...) { lexer_dump_err(__VA_ARGS__); exit(1); } while(0)
+__attribute__((format(printf,3,4))) void lexer_dump_warn(Location, FILE*, char *fmt, ...);
+void lexer_dump_token(Token, FILE*);

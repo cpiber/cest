@@ -131,6 +131,24 @@ String_View load_file(const char *filename) {
   };
 }
 
+char *struct_to_name(StructDef def, bool include_struct_body) {
+  const size_t n = def.strt.count ? sizeof("struct ") - 1 + def.strt.count : 0;
+  const size_t m = n && def.tdef.count ? 3 : 0;
+  char *fname = malloc(n + def.tdef.count + m + 1 + include_struct_body ? sizeof(" struct body") - 1 : 0);
+  if (fname == NULL) {
+    perror("malloc filename");
+    exit(1);
+  }
+  if (n) {
+    strcpy(fname, "struct ");
+    strncat(fname, def.strt.data, def.strt.count);
+  }
+  if (m) strcat(fname, " / ");
+  strncat(fname, def.tdef.data, def.tdef.count);
+  if (include_struct_body) strcat(fname, " struct body");
+  return fname;
+}
+
 bool parse_structdef(Lexer *lexer, String_View *strt, String_View *def, bool *is_struct, String_View *who) {
   bool is_inherit = false;
   TokenOrEnd nameOrParen = lexer_peek_token(lexer);
@@ -140,7 +158,7 @@ bool parse_structdef(Lexer *lexer, String_View *strt, String_View *def, bool *is
   }
   Token paren = lexer_expect_token(lexer);
   if (paren.kind != TK_PAREN)
-    lexer_print_err(paren.loc, stderr, "Expected identifier or `{'");
+    lexer_exit_err(paren.loc, stderr, "Expected identifier or `{'");
   if (sv_eq(paren.content, SV("("))) {
     is_inherit = true;
     TokenOrEnd nameOrStruct = lexer_peek_token(lexer);
@@ -150,15 +168,15 @@ bool parse_structdef(Lexer *lexer, String_View *strt, String_View *def, bool *is
     }
     Token name = lexer_expect_token(lexer);
     if (name.kind != TK_NAME)
-      lexer_print_err(paren.loc, stderr, "Expected identifier or `struct'");
+      lexer_exit_err(paren.loc, stderr, "Expected identifier or `struct'");
     if (who) *who = name.content;
     Token closeParen = lexer_expect_token(lexer);
     if (closeParen.kind != TK_PAREN || !sv_eq(closeParen.content, SV(")")))
-      lexer_print_err(closeParen.loc, stderr, "Expected `)'");
+      lexer_exit_err(closeParen.loc, stderr, "Expected `)'");
     paren = lexer_expect_token(lexer);
   }
   if (paren.kind != TK_PAREN || !sv_eq(paren.content, SV("{")))
-    lexer_print_err(paren.loc, stderr, "Expected identifier or `{'");
+    lexer_exit_err(paren.loc, stderr, "Expected identifier or `{'");
   
   *def = lexer->content;
   TokenOrEnd ntoken = lexer_peek_token(lexer);
@@ -171,7 +189,7 @@ bool parse_structdef(Lexer *lexer, String_View *strt, String_View *def, bool *is
   }
   Token closeParen = lexer_expect_token(lexer);
   if (closeParen.kind != TK_PAREN || !sv_eq(closeParen.content, SV("}")))
-    lexer_print_err(closeParen.loc, stderr, "Expected `}'");
+    lexer_exit_err(closeParen.loc, stderr, "Expected `}'");
   def->count = closeParen.content.data - def->data;
   return is_inherit;
 }
@@ -212,7 +230,9 @@ StructArr collect_structs(const char *filename) {
   String_View file = preprocess_file(filename);
   assert(file.data[file.count] == 0);
 
-  StructArr structs = {0};
+  StructArr structs = {
+    .orig = file.data,
+  };
   char *fname = malloc(strlen(filename) + sizeof(" (preprocessed)"));
   if (fname == NULL) {
     perror("malloc filename");
@@ -245,7 +265,7 @@ StructArr collect_structs(const char *filename) {
     // ignore everything else
   }
   if (depth != 0)
-    lexer_print_err(lexer.loc, stderr, "Unclosed block");
+    lexer_exit_err(lexer.loc, stderr, "Unclosed block");
   
   free(fname);
   return structs;
@@ -296,7 +316,7 @@ void collect_inherits(StructArr *structs, String_View file, String_View filename
         continue;
       // typdef given but no name -> skip it
       if (new.tdef.count == 0) {
-        fprintf(stderr, "Warning: typedef but no name for child of `" SV_Fmt "`\n", SV_Arg(who));
+        lexer_dump_warn(t.loc, stderr, "Warning: typedef but no name for child of `" SV_Fmt "`", SV_Arg(who));
         new.loc_start += t.content.count;
       }
     }
@@ -307,7 +327,7 @@ void collect_inherits(StructArr *structs, String_View file, String_View filename
     
     new.loc_end = lexer.content.data - new.tdef.count;
     if (!new.strt.count && !new.tdef.count) {
-      fprintf(stderr, "Warning: neither struct name nor typedef given for child of `" SV_Fmt "`\n", SV_Arg(who));
+      lexer_dump_warn(t.loc, stderr, "Warning: neither struct name nor typedef given for child of `" SV_Fmt "`", SV_Arg(who));
     }
 
     for (; token.has_value; token = lexer_get_token(&lexer)) {
@@ -328,16 +348,11 @@ void collect_inherits(StructArr *structs, String_View file, String_View filename
         break;
       }
     }
-    if (!new.hasParent) {
-      fprintf(stderr, "Error: no parent `" SV_Fmt "` known in definition of ", SV_Arg(who));
-      if (new.strt.count) fprintf(stderr, "`struct " SV_Fmt "`", SV_Arg(new.strt));
-      if (new.strt.count && new.tdef.count) fprintf(stderr, " / ");
-      if (new.tdef.count) fprintf(stderr, "`" SV_Fmt "`", SV_Arg(new.tdef));
-      fprintf(stderr, "\n");
-    }
+    if (!new.hasParent)
+      lexer_dump_err(t.loc, stderr, "Error: no parent `" SV_Fmt "` known in definition of %s", SV_Arg(who), struct_to_name(new, false));
   }
   if (depth != 0)
-    lexer_print_err(lexer.loc, stderr, "Unclosed block");
+    lexer_exit_err(lexer.loc, stderr, "Unclosed block");
 }
 
 #define WRITE(ptr, size) do                                          \
@@ -364,24 +379,6 @@ void dump_type_name(StructDef def, FILE *outfile) {
   }
 }
 
-char *struct_to_name(StructDef def) {
-  const size_t n = def.strt.count ? sizeof("struct ") + def.strt.count : 0;
-  const size_t m = n && def.tdef.count ? 3 : 0;
-  char *fname = malloc(n + def.tdef.count + m + sizeof(" struct body"));
-  if (fname == NULL) {
-    perror("malloc filename");
-    exit(1);
-  }
-  if (n) {
-    strcpy(fname, "struct ");
-    strncat(fname, def.strt.data, def.strt.count);
-  }
-  if (m) strcat(fname, " / ");
-  strncat(fname, def.tdef.data, def.tdef.count);
-  strcat(fname, " struct body");
-  return fname;
-}
-
 String_View extract_property(Lexer *lexer) {
   String_View last_name = {0};
   while (true) {
@@ -396,16 +393,16 @@ void dump_asserts(StructArr data, StructDef def, StructDef curparent, StructDef 
   // dump asserts for all fields in parent chain, but with actual parent name
   if (parent.hasParent) dump_asserts(data, def, curparent, data.items[parent.parent], outfile);
 
-  char *fname = struct_to_name(parent);
+  char *fname = struct_to_name(parent, true);
   Lexer lexer = lexer_create(sv_from_cstr(fname), parent.defn);
   TokenOrEnd token = lexer_get_token(&lexer);
   for (; token.has_value; token = lexer_get_token(&lexer)) {
     Token t = token.token;
     if (t.kind != TK_NAME)
-      lexer_print_err(t.loc, stderr, "Expected a type");
+      lexer_exit_err(t.loc, stderr, "Expected a type");
     String_View property = extract_property(&lexer);
     if (!property.count)
-      lexer_print_err(t.loc, stderr, "Not a valid property");
+      lexer_exit_err(t.loc, stderr, "Not a valid property");
     
     static char assrt1[] = "_Static_assert(offsetof(";
     static char assrt2[] = ") == offsetof(";

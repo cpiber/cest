@@ -12,7 +12,7 @@ int main(int argc, char *argv[]) {
   Lexer lexer = (Lexer) { .content = file, .loc = { .filename = sv_from_cstr(argv[1]) } };
   TokenOrEnd token = lexer_get_token(&lexer);
   while (token.has_value) {
-    lexer_print_token(token.token, stdout);
+    lexer_dump_token(token.token, stdout);
     token = lexer_get_token(&lexer);
   }
   return 0;
